@@ -15,8 +15,8 @@
  */
 
 import { computeLoanDues } from "@/features/girvi/interest"
-import { db, activeCompanyId } from "@/db/database"
-import { systemDb } from "@/db/systemDb"
+import { db, activeCompanyId, JewelDatabase, dbNameForCompany } from "@/db/database"
+import { systemDb, type Company, type User } from "@/db/systemDb"
 import type {
   Counter,
   Customer,
@@ -1182,10 +1182,20 @@ export const ledgerService = {
 export interface BackupFile {
   app: "jewel-erp"
   version: number
+  scope?: "system" | "company"
   exportedAt: string
   company?: string
+  companyProfile?: Company
   financialYear?: string
-  tables: Record<string, unknown[]>
+  tables?: Record<string, unknown[]>
+  system?: {
+    companies: Company[]
+    users: User[]
+  }
+  companiesData?: {
+    companyId: number
+    tables: Record<string, unknown[]>
+  }[]
 }
 
 export const maintenanceService = {
@@ -1196,22 +1206,61 @@ export const maintenanceService = {
     })
   },
 
-  /** Dump the active firm's entire business database into a plain object. */
-  async exportData(meta: { company?: string; financialYear?: string } = {}): Promise<BackupFile> {
+  /** Dump the active company's business database. */
+  async exportCompany(companyId: number, financialYear?: string): Promise<BackupFile> {
+    const company = await systemDb.companies.get(companyId)
     const tables: Record<string, unknown[]> = {}
-    for (const t of db.tables) tables[t.name] = await t.toArray()
+    for (const t of db.tables) {
+      tables[t.name] = await t.toArray()
+    }
     return {
       app: "jewel-erp",
       version: db.verno,
+      scope: "company",
       exportedAt: new Date().toISOString(),
-      company: meta.company,
-      financialYear: meta.financialYear,
+      company: company?.name,
+      companyProfile: company,
+      financialYear,
       tables,
     }
   },
 
-  /** Restore a backup into the active firm (replaces existing data). */
-  async importData(backup: BackupFile): Promise<{ tables: number; rows: number }> {
+  /** Export the entire system: all companies, users, and business databases. */
+  async exportSystem(meta: { financialYear?: string } = {}): Promise<BackupFile> {
+    const companies = await systemDb.companies.toArray()
+    const users = await systemDb.users.toArray()
+    const companiesData: { companyId: number; tables: Record<string, unknown[]> }[] = []
+
+    for (const co of companies) {
+      const tempDb = new JewelDatabase(dbNameForCompany(co.id!))
+      await tempDb.open()
+      const tables: Record<string, unknown[]> = {}
+      for (const t of tempDb.tables) {
+        tables[t.name] = await t.toArray()
+      }
+      tempDb.close()
+      companiesData.push({
+        companyId: co.id!,
+        tables,
+      })
+    }
+
+    return {
+      app: "jewel-erp",
+      version: db.verno,
+      scope: "system",
+      exportedAt: new Date().toISOString(),
+      financialYear: meta.financialYear,
+      system: {
+        companies,
+        users,
+      },
+      companiesData,
+    }
+  },
+
+  /** Restore a single company database and profile. */
+  async importCompany(backup: BackupFile, targetCompanyId: number): Promise<{ tables: number; rows: number }> {
     if (backup?.app !== "jewel-erp" || !backup.tables) {
       throw new Error("Not a valid Jewel-ERP backup file")
     }
@@ -1219,7 +1268,7 @@ export const maintenanceService = {
     let tableCount = 0
     await db.transaction("rw", db.tables, async () => {
       for (const t of db.tables) {
-        const data = backup.tables[t.name]
+        const data = backup.tables?.[t.name]
         if (!Array.isArray(data)) continue
         await t.clear()
         if (data.length) await t.bulkPut(data as never[])
@@ -1227,7 +1276,66 @@ export const maintenanceService = {
         tableCount++
       }
     })
+
+    if (backup.companyProfile) {
+      const { id, createdAt, ...profilePatch } = backup.companyProfile
+      await systemDb.companies.update(targetCompanyId, profilePatch)
+    }
+
     return { tables: tableCount, rows }
+  },
+
+  /** Restore the entire system database and all company databases. */
+  async importSystem(backup: BackupFile): Promise<{ companies: number; users: number; records: number }> {
+    if (
+      backup?.app !== "jewel-erp" ||
+      backup.scope !== "system" ||
+      !backup.system ||
+      !backup.companiesData
+    ) {
+      throw new Error("Not a valid Jewel-ERP system backup file")
+    }
+
+    const { companies, users } = backup.system
+
+    await systemDb.transaction("rw", [systemDb.companies, systemDb.users], async () => {
+      await systemDb.companies.clear()
+      await systemDb.users.clear()
+      if (companies.length) await systemDb.companies.bulkPut(companies)
+      if (users.length) await systemDb.users.bulkPut(users)
+    })
+
+    let totalRecords = 0
+    for (const entry of backup.companiesData) {
+      const tempDb = new JewelDatabase(dbNameForCompany(entry.companyId))
+      await tempDb.open()
+      await tempDb.transaction("rw", tempDb.tables, async () => {
+        for (const t of tempDb.tables) {
+          const data = entry.tables[t.name]
+          if (!Array.isArray(data)) continue
+          await t.clear()
+          if (data.length) await t.bulkPut(data as never[])
+          totalRecords += data.length
+        }
+      })
+      tempDb.close()
+    }
+
+    return {
+      companies: companies.length,
+      users: users.length,
+      records: totalRecords,
+    }
+  },
+
+  /** Dump the active firm's entire business database into a plain object (legacy). */
+  async exportData(meta: { company?: string; financialYear?: string } = {}): Promise<BackupFile> {
+    return this.exportCompany(activeCompanyId(), meta.financialYear)
+  },
+
+  /** Restore a backup into the active firm (legacy). */
+  async importData(backup: BackupFile): Promise<{ tables: number; rows: number }> {
+    return this.importCompany(backup, activeCompanyId())
   },
 }
 

@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react"
 import { useLiveQuery } from "dexie-react-hooks"
 import { useRef } from "react"
-import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload, Printer } from "lucide-react"
+import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload, Printer, AlertTriangle, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
 import type { UserRole } from "@/db/systemDb"
 import { Textarea } from "@/components/ui/textarea"
 import { authService } from "@/services/authService"
 import { maintenanceService, type BackupFile } from "@/services/dbService"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { switchCompany, activeCompanyId } from "@/db/database"
 import { downloadText } from "@/lib/csv"
 import { useSession } from "@/stores/useSession"
@@ -704,78 +712,279 @@ function Backup() {
   const financialYear = useSession((s) => s.financialYear)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  const [exportScope, setExportScope] = useState<"company" | "system">("company")
+  const [previewBackup, setPreviewBackup] = useState<BackupFile | null>(null)
+  const [confirmText, setConfirmText] = useState("")
+  const [isRestoring, setIsRestoring] = useState(false)
+
   const doBackup = async () => {
-    const data = await maintenanceService.exportData({
-      company: company?.name,
-      financialYear: financialYear ?? undefined,
-    })
-    const stamp = data.exportedAt.slice(0, 10)
-    const safe = (company?.name ?? "firm").replace(/[^a-z0-9]+/gi, "-")
-    downloadText(`jewel-backup-${safe}-${stamp}.json`, JSON.stringify(data), "application/json")
-    const rows = Object.values(data.tables).reduce((s, t) => s + t.length, 0)
-    toast.success(`Backup downloaded · ${rows} records`)
+    try {
+      let data: BackupFile
+      let filename = ""
+
+      const stamp = new Date().toISOString().slice(0, 10)
+      if (exportScope === "system") {
+        data = await maintenanceService.exportSystem({
+          financialYear: financialYear ?? undefined,
+        })
+        filename = `jewel-backup-FULL-SYSTEM-${stamp}.json`
+      } else {
+        data = await maintenanceService.exportCompany(activeCompanyId(), financialYear ?? undefined)
+        const safe = (company?.name ?? "firm").replace(/[^a-z0-9]+/gi, "-")
+        filename = `jewel-backup-${safe}-${stamp}.json`
+      }
+
+      downloadText(filename, JSON.stringify(data, null, 2), "application/json")
+
+      let rows = 0
+      if (data.scope === "system") {
+        rows = (data.companiesData ?? []).reduce(
+          (sum, cData) => sum + Object.values(cData.tables).reduce((s, t) => s + t.length, 0),
+          0,
+        )
+      } else {
+        rows = Object.values(data.tables || {}).reduce((s, t) => s + t.length, 0)
+      }
+      toast.success(`Backup downloaded · ${rows} records packaged`)
+    } catch (err) {
+      toast.error(`Backup failed: ${(err as Error).message}`)
+    }
   }
 
-  const doRestore = async (file?: File) => {
+  const handleFileChange = async (file?: File) => {
     if (!file) return
-    if (
-      !confirm(
-        `Restore "${file.name}"? This REPLACES all data in the current firm (${company?.name}). This cannot be undone.`,
-      )
-    )
-      return
     try {
       const text = await file.text()
       const backup = JSON.parse(text) as BackupFile
-      const { tables, rows } = await maintenanceService.importData(backup)
-      toast.success(`Restored ${rows} records across ${tables} tables. Reloading…`)
-      setTimeout(() => window.location.reload(), 800)
+      if (backup?.app !== "jewel-erp") {
+        throw new Error("Not a valid Jewel-ERP backup file")
+      }
+      setPreviewBackup(backup)
+      setConfirmText("")
     } catch (err) {
-      toast.error(`Restore failed: ${(err as Error).message}`)
-    } finally {
+      toast.error(`Invalid backup file: ${(err as Error).message}`)
       if (fileRef.current) fileRef.current.value = ""
     }
   }
 
+  const confirmRestore = async () => {
+    if (!previewBackup || confirmText !== "RESTORE") return
+    setIsRestoring(true)
+    try {
+      if (previewBackup.scope === "system") {
+        const { companies, users, records } = await maintenanceService.importSystem(previewBackup)
+        toast.success(`System restored: ${companies} firms, ${users} users, ${records} records. Reloading…`)
+      } else {
+        const { tables, rows } = await maintenanceService.importCompany(previewBackup, activeCompanyId())
+        toast.success(`Firm restored: ${rows} records across ${tables} tables. Reloading…`)
+      }
+      setTimeout(() => window.location.reload(), 1000)
+    } catch (err) {
+      toast.error(`Restore failed: ${(err as Error).message}`)
+      setIsRestoring(false)
+    }
+  }
+
+  const previewStats = () => {
+    if (!previewBackup) return null
+    const scope = previewBackup.scope ?? "company"
+    let recordCount = 0
+    let tableCount = 0
+    let firmsList: string[] = []
+
+    if (scope === "system") {
+      tableCount = 0
+      recordCount = (previewBackup.companiesData ?? []).reduce((sum, cData) => {
+        const keys = Object.keys(cData.tables)
+        tableCount += keys.length
+        return sum + Object.values(cData.tables).reduce((s, t) => s + t.length, 0)
+      }, 0)
+      firmsList = (previewBackup.system?.companies ?? []).map((c) => c.name)
+    } else {
+      const keys = Object.keys(previewBackup.tables || {})
+      tableCount = keys.length
+      recordCount = Object.values(previewBackup.tables || {}).reduce((s, t) => s + t.length, 0)
+      firmsList = [previewBackup.company || "Unknown Firm"]
+    }
+
+    return {
+      scope,
+      recordCount,
+      tableCount,
+      firmsList,
+      date: previewBackup.exportedAt ? new Date(previewBackup.exportedAt).toLocaleString() : "Unknown date",
+    }
+  }
+
+  const stats = previewStats()
+
   return (
-    <div className="max-w-xl space-y-4">
-      <div className="rounded-md border p-4">
-        <h3 className="flex items-center gap-1.5 text-sm font-medium">
-          <Download className="size-4" /> Backup
+    <div className="max-w-2xl space-y-6">
+      <div className="rounded-lg border bg-card p-5 shadow-xs">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold border-b pb-2 mb-4">
+          <Download className="size-4 text-amber-500" /> Export Database Backup
         </h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Downloads every record of the current firm
-          {company?.name ? ` (${company.name})` : ""} as a single JSON file. Keep it
-          on a USB drive or cloud folder.
-        </p>
-        <Button className="mt-3" onClick={() => void doBackup()}>
-          <Download className="size-4" /> Download Backup
-        </Button>
+
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Select Backup Scope</Label>
+            <div className="flex gap-4 pt-1">
+              <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                <input
+                  type="radio"
+                  name="exportScope"
+                  checked={exportScope === "company"}
+                  onChange={() => setExportScope("company")}
+                  className="accent-amber-500"
+                />
+                <span>Active Firm Only ({company?.name})</span>
+              </label>
+              <label className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                <input
+                  type="radio"
+                  name="exportScope"
+                  checked={exportScope === "system"}
+                  onChange={() => setExportScope("system")}
+                  className="accent-amber-500"
+                />
+                <span>Entire System (All Firms, Users, and Settings)</span>
+              </label>
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground leading-relaxed pt-1">
+            {exportScope === "system"
+              ? "Generates a complete snapshot of all firms, global user configurations, and individual sales/girvi/chit records. Recommended for full backups or server migrations."
+              : `Generates a single firm snapshot of ${company?.name || "the active company"}. This includes POS sales invoices, local items inventory, schemes accounts, and karigar transactions.`}
+          </p>
+
+          <Button className="mt-2 bg-amber-500 hover:bg-amber-600 text-white" onClick={() => void doBackup()}>
+            <Download className="size-4" /> Download Backup File
+          </Button>
+        </div>
       </div>
 
-      <div className="rounded-md border p-4">
-        <h3 className="flex items-center gap-1.5 text-sm font-medium">
-          <Upload className="size-4" /> Restore
+      <div className="rounded-lg border bg-card p-5 shadow-xs">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold border-b pb-2 mb-4">
+          <Upload className="size-4 text-indigo-500" /> Restore Database Backup
         </h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Replaces the current firm's data with a backup file. The app reloads when
-          done.
-        </p>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/json,.json"
-          className="hidden"
-          onChange={(e) => void doRestore(e.target.files?.[0])}
-        />
-        <Button
-          variant="outline"
-          className="mt-3"
-          onClick={() => fileRef.current?.click()}
-        >
-          <Upload className="size-4" /> Choose Backup File…
-        </Button>
+
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Upload a previously exported Jewel-ERP JSON backup file to restore your database.
+            A validation summary preview will be shown before any write operations are executed.
+          </p>
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => void handleFileChange(e.target.files?.[0])}
+          />
+          <Button
+            variant="outline"
+            className="border-indigo-500/20 hover:bg-indigo-500/5 hover:text-indigo-600 transition-colors"
+            onClick={() => fileRef.current?.click()}
+          >
+            <Upload className="size-4" /> Choose Backup File…
+          </Button>
+        </div>
       </div>
+
+      {/* Restore Confirmation Dialog Preview Modal */}
+      <Dialog open={previewBackup !== null} onOpenChange={(open) => { if (!open) setPreviewBackup(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base font-semibold text-rose-600">
+              <AlertTriangle className="size-5 animate-bounce shrink-0" />
+              Confirm Database Restore
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Please review the backup file contents below. This operation will overwrite existing database records!
+            </DialogDescription>
+          </DialogHeader>
+
+          {stats && (
+            <div className="space-y-4 my-2 text-xs">
+              <div className="rounded-md bg-rose-50 border border-rose-100 p-3 text-rose-800 space-y-1.5">
+                <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-[10px]">
+                  <ShieldAlert className="size-3.5" />
+                  <span>Warning: Destructive Overwrite</span>
+                </div>
+                <p className="leading-relaxed">
+                  {stats.scope === "system"
+                    ? "Restoring this system backup will completely delete and replace all firms (companies), all user accounts, and all business data in the system."
+                    : `Restoring this backup will replace all inventory, invoicing, and accounts data for the active company: "${company?.name}".`}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 border rounded-md p-3 bg-muted/30">
+                <div>
+                  <span className="text-muted-foreground block">Backup Scope:</span>
+                  <span className="font-semibold capitalize text-foreground">{stats.scope}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block">Exported At:</span>
+                  <span className="font-semibold text-foreground">{stats.date}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block">Tables Packaged:</span>
+                  <span className="font-semibold text-foreground">{stats.tableCount} tables</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block">Total Records:</span>
+                  <span className="font-semibold text-foreground">{stats.recordCount} records</span>
+                </div>
+              </div>
+
+              <div>
+                <span className="text-muted-foreground font-semibold block mb-1">Firms included in backup:</span>
+                <div className="flex flex-wrap gap-1">
+                  {stats.firmsList.map((f, i) => (
+                    <span key={i} className="bg-muted px-2 py-0.5 rounded border text-[10px] font-medium text-foreground">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5 pt-2 border-t">
+                <Label className="text-xs font-semibold text-rose-700">
+                  To confirm and proceed, please type <span className="font-black bg-rose-100 px-1 py-0.5 rounded">RESTORE</span> below:
+                </Label>
+                <Input
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  placeholder="Type RESTORE"
+                  className="border-rose-300 focus-visible:ring-rose-400"
+                  disabled={isRestoring}
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={isRestoring}
+              onClick={() => setPreviewBackup(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold disabled:opacity-50"
+              disabled={confirmText !== "RESTORE" || isRestoring}
+              onClick={() => void confirmRestore()}
+            >
+              {isRestoring ? "Restoring..." : "Yes, Confirm & Restore"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
