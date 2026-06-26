@@ -79,19 +79,24 @@ export function InvoiceReceipt({
             size="sm"
             className="bg-[#25D366] text-white hover:bg-[#1da851]"
             onClick={() => {
-              const lines = [
-                `*${SHOP.name}*`,
-                `Invoice ${invoice.invoiceNo} · ${formatDate(invoice.date)}`,
-                `Net Payable: ₹${formatAmount(totals.netAmount)}`,
-                invoice.balance > 0
-                  ? `Balance Due: ₹${formatAmount(invoice.balance)}`
-                  : "Paid in full. Thank you!",
-              ]
-              const text = encodeURIComponent(lines.join("\n"))
+              const defaultTemplate = "*{{companyName}}*\nInvoice {{invoiceNo}} · {{invoiceDate}}\nNet Payable: ₹{{netAmount}}\n{{paymentStatus}}"
+              const template = company?.templateInvoice || defaultTemplate
+
+              const statusStr = invoice.balance > 0
+                ? `Balance Due: ₹${formatAmount(invoice.balance)}`
+                : "Paid in full. Thank you!"
+
+              const text = template
+                .replace(/{{companyName}}/g, SHOP.name)
+                .replace(/{{invoiceNo}}/g, invoice.invoiceNo)
+                .replace(/{{invoiceDate}}/g, formatDate(invoice.date))
+                .replace(/{{netAmount}}/g, formatAmount(totals.netAmount))
+                .replace(/{{paymentStatus}}/g, statusStr)
+
               const digits = (customer?.mobile ?? "").replace(/\D/g, "")
               const phone = digits.length === 10 ? `91${digits}` : digits
               window.open(
-                `https://wa.me/${phone}?text=${text}`,
+                `https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
                 "_blank",
                 "noopener",
               )

@@ -1,11 +1,12 @@
 import { useState, useMemo } from "react"
 import { useLiveQuery } from "dexie-react-hooks"
-import { X, Printer, Plus, RotateCw, Lock, Fingerprint, ImageOff } from "lucide-react"
+import { X, Printer, Plus, RotateCw, Lock, Fingerprint, ImageOff, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 import type { Loan, LoanPayment } from "@/db/types"
 import { loansService, customersService, todayStr } from "@/services/dbService"
 import { formatAmount, formatDate, wt } from "@/lib/format"
 import { computeLoanDues } from "./interest"
+import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -38,6 +39,7 @@ export function LoanDetailsDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const company = useSession((s) => s.company)
   const [payAction, setPayAction] = useState<"part" | "renewal" | "closure" | null>(null)
   const [payDate, setPayDate] = useState(todayStr())
   const [payAmount, setPayAmount] = useState(0)
@@ -64,6 +66,26 @@ export function LoanDetailsDialog({
   const dues = useMemo(() => {
     return computeLoanDues(loan, payments ?? [], todayStr())
   }, [loan, payments])
+
+  const sendWhatsAppReminder = () => {
+    if (!customer) return
+    const defaultTemplate = "Dear {{customerName}},\nThis is a reminder regarding your gold loan {{loanNo}} dated {{loanDate}}.\nPrincipal: ₹{{loanAmount}}.\nAccumulated Interest: ₹{{interestOutstanding}}.\nTotal Dues: ₹{{totalDues}}.\nKindly clear your interest or close the loan. Thank you!"
+    const template = company?.templateGirvi || defaultTemplate
+
+    const text = template
+      .replace(/{{customerName}}/g, customer.name)
+      .replace(/{{loanNo}}/g, loan.loanNo)
+      .replace(/{{loanDate}}/g, formatDate(loan.date))
+      .replace(/{{loanAmount}}/g, formatAmount(loan.loanAmount))
+      .replace(/{{interestOutstanding}}/g, formatAmount(dues.interestOutstanding))
+      .replace(/{{totalDues}}/g, formatAmount(dues.totalDues))
+      .replace(/{{companyName}}/g, company?.name || "")
+
+    const cleanPhone = customer.mobile.trim().replace(/\D/g, "")
+    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
+    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`
+    window.open(url, "_blank")
+  }
 
   // Setup initial values when action changes
   const handleActionClick = (action: "part" | "renewal" | "closure") => {
@@ -279,9 +301,21 @@ export function LoanDetailsDialog({
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <h3 className="text-sm font-semibold">Ledger & Payments</h3>
-                  <Button variant="outline" size="xs" className="h-7 text-xs px-2" onClick={() => setPrintPavati(loan)}>
-                    <Printer className="size-3.5 mr-1" /> Print Pavati
-                  </Button>
+                  <div className="flex gap-1.5">
+                    {!loan.isClosed && (
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="h-7 text-xs px-2 border-emerald-500/20 text-emerald-600 hover:bg-emerald-500/10"
+                        onClick={sendWhatsAppReminder}
+                      >
+                        <MessageCircle className="size-3.5 mr-1" /> WhatsApp
+                      </Button>
+                    )}
+                    <Button variant="outline" size="xs" className="h-7 text-xs px-2" onClick={() => setPrintPavati(loan)}>
+                      <Printer className="size-3.5 mr-1" /> Print Pavati
+                    </Button>
+                  </div>
                 </div>
                 
                 <div className="rounded-md border max-h-[160px] overflow-y-auto">

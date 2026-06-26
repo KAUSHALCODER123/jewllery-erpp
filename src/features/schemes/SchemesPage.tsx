@@ -1,12 +1,13 @@
 import { useMemo, useState } from "react"
 import { useLiveQuery } from "dexie-react-hooks"
-import { Plus, PiggyBank, IndianRupee, CheckCircle2, Eye, Printer } from "lucide-react"
+import { Plus, PiggyBank, IndianRupee, CheckCircle2, Eye, Printer, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 import type { Scheme, SchemeAccount, SchemePayment, PaymentMode } from "@/db/types"
 import { schemesService, customersService, todayStr } from "@/services/dbService"
 import { formatAmount, formatDate, formatINR } from "@/lib/format"
 import { ChitReceipt } from "./ChitReceipt"
 import { cn } from "@/lib/utils"
+import { useSession } from "@/stores/useSession"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -591,6 +592,13 @@ function AccountDetailsDialog({
   onPay: (installmentNo: number, dueDate: string) => void
   onPrint: (paymentId: number) => void
 }) {
+  const company = useSession((s) => s.company)
+
+  const customer = useLiveQuery(
+    () => customersService.get(account.customerId),
+    [account.customerId]
+  )
+
   const schedule = useLiveQuery(
     () => schemesService.getSchedule(account.id!),
     [account.id],
@@ -618,6 +626,30 @@ function AccountDetailsDialog({
   const maturityValue = scheme
     ? scheme.monthlyAmount * (scheme.durationMonths + scheme.bonusMonths)
     : 0
+
+  const sendWhatsAppReminder = () => {
+    if (!customer || !scheme) return
+    const nextDue = (schedule ?? []).find((r) => !r.paid)
+    if (!nextDue) {
+      toast.info("All installments are already paid!")
+      return
+    }
+
+    const defaultTemplate = "Dear {{customerName}},\nYour monthly installment of ₹{{monthlyAmount}} for saving scheme account {{accountNo}} is due on {{dueDate}}.\nKindly pay at your earliest convenience. Thank you!"
+    const template = company?.templateScheme || defaultTemplate
+
+    const text = template
+      .replace(/{{customerName}}/g, customer.name)
+      .replace(/{{monthlyAmount}}/g, formatAmount(scheme.monthlyAmount))
+      .replace(/{{accountNo}}/g, account.accountNo)
+      .replace(/{{dueDate}}/g, formatDate(nextDue.dueDate))
+      .replace(/{{companyName}}/g, company?.name || "")
+
+    const cleanPhone = customer.mobile.trim().replace(/\D/g, "")
+    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
+    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`
+    window.open(url, "_blank")
+  }
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -750,8 +782,19 @@ function AccountDetailsDialog({
           </Table>
         </div>
 
-        <DialogFooter className="border-t pt-3">
-          <Button variant="outline" onClick={onClose}>
+        <DialogFooter className="border-t pt-3 flex items-center justify-between gap-2">
+          {account.status === "active" && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-emerald-600 border-emerald-500/20 hover:bg-emerald-500/10"
+              onClick={sendWhatsAppReminder}
+            >
+              <MessageCircle className="size-4 mr-1" /> WhatsApp Reminder
+            </Button>
+          )}
+          <Button variant="outline" onClick={onClose} className="ml-auto">
             Close
           </Button>
         </DialogFooter>

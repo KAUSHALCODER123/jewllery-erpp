@@ -47,6 +47,11 @@ export interface Company {
   defaultHsnCode?: string
   loyaltyEarnPerGram?: number
   loyaltyRupeesPerPoint?: number
+  // WhatsApp notification templates
+  templateInvoice?: string
+  templateDues?: string
+  templateGirvi?: string
+  templateScheme?: string
 }
 
 export class SystemDatabase extends Dexie {

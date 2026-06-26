@@ -55,6 +55,7 @@ export function SettingsPage() {
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="account">My Account</TabsTrigger>
             <TabsTrigger value="backup">Backup</TabsTrigger>
+            <TabsTrigger value="templates">Msg Templates</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="shop" className="min-h-0 flex-1 overflow-auto p-4">
@@ -74,6 +75,9 @@ export function SettingsPage() {
         </TabsContent>
         <TabsContent value="backup" className="min-h-0 flex-1 overflow-auto p-4">
           <Backup />
+        </TabsContent>
+        <TabsContent value="templates" className="min-h-0 flex-1 overflow-auto p-4">
+          <NotificationTemplates />
         </TabsContent>
       </Tabs>
     </>
@@ -1003,5 +1007,221 @@ function Field({
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <div className="mt-1">{children}</div>
     </div>
+  )
+}
+
+const DEFAULT_INVOICE_TEMPLATE = "*{{companyName}}*\nInvoice {{invoiceNo}} · {{invoiceDate}}\nNet Payable: ₹{{netAmount}}\n{{paymentStatus}}"
+const DEFAULT_DUES_TEMPLATE = "Dear {{customerName}}, this is a gentle reminder that your outstanding balance is ₹{{outstanding}}. Please clear the dues at your earliest convenience. Thank you!"
+const DEFAULT_GIRVI_TEMPLATE = "Dear {{customerName}},\nThis is a reminder regarding your gold loan {{loanNo}} dated {{loanDate}}.\nPrincipal: ₹{{loanAmount}}.\nAccumulated Interest: ₹{{interestOutstanding}}.\nTotal Dues: ₹{{totalDues}}.\nKindly clear your interest or close the loan. Thank you!"
+const DEFAULT_SCHEME_TEMPLATE = "Dear {{customerName}},\nYour monthly installment of ₹{{monthlyAmount}} for saving scheme account {{accountNo}} is due on {{dueDate}}.\nKindly pay at your earliest convenience. Thank you!"
+
+function NotificationTemplates() {
+  const company = useSession((s) => s.company)
+  const setCompanyProfile = useSession((s) => s.setCompanyProfile)
+
+  const [form, setForm] = useState({
+    templateInvoice: "",
+    templateDues: "",
+    templateGirvi: "",
+    templateScheme: "",
+  })
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (company) {
+      setForm({
+        templateInvoice: company.templateInvoice ?? DEFAULT_INVOICE_TEMPLATE,
+        templateDues: company.templateDues ?? DEFAULT_DUES_TEMPLATE,
+        templateGirvi: company.templateGirvi ?? DEFAULT_GIRVI_TEMPLATE,
+        templateScheme: company.templateScheme ?? DEFAULT_SCHEME_TEMPLATE,
+      })
+    }
+  }, [company])
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!company?.id) return
+    setSaving(true)
+    try {
+      const patch = {
+        templateInvoice: form.templateInvoice.trim(),
+        templateDues: form.templateDues.trim(),
+        templateGirvi: form.templateGirvi.trim(),
+        templateScheme: form.templateScheme.trim(),
+      }
+      await authService.updateCompany(company.id, patch)
+      setCompanyProfile({ ...company, ...patch })
+      toast.success("Notification templates updated successfully")
+    } catch (err) {
+      toast.error(`Failed to save: ${(err as Error).message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const resetTemplate = (key: keyof typeof form, defaultValue: string) => {
+    setForm((f) => ({ ...f, [key]: defaultValue }))
+    toast.info("Template reset to default (save to apply)")
+  }
+
+  if (!company) {
+    return <p className="text-xs text-muted-foreground">Select a firm profile first.</p>
+  }
+
+  return (
+    <form onSubmit={save} className="max-w-2xl space-y-6 pb-8">
+      {/* Invoice Checkouts Template Card */}
+      <div className="space-y-4 rounded-lg border p-4 bg-card shadow-2xs">
+        <div className="flex items-center justify-between border-b pb-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            1. Invoice Checkouts Template
+          </h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
+            onClick={() => resetTemplate("templateInvoice", DEFAULT_INVOICE_TEMPLATE)}
+          >
+            Reset to Default
+          </Button>
+        </div>
+        <Field label="Message Text Template">
+          <Textarea
+            rows={4}
+            value={form.templateInvoice}
+            onChange={(e) => setForm({ ...form, templateInvoice: e.target.value })}
+            className="text-xs font-mono font-medium"
+          />
+        </Field>
+        <div className="text-[10px] text-muted-foreground space-y-1">
+          <span className="font-semibold text-foreground">Available Tags:</span>
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {["{{companyName}}", "{{invoiceNo}}", "{{invoiceDate}}", "{{netAmount}}", "{{paymentStatus}}"].map((tag) => (
+              <code key={tag} className="bg-muted px-1.5 py-0.5 rounded border text-[9px] font-bold text-foreground">
+                {tag}
+              </code>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Debtors Outstanding Template Card */}
+      <div className="space-y-4 rounded-lg border p-4 bg-card shadow-2xs">
+        <div className="flex items-center justify-between border-b pb-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            2. Debtors Outstanding Reminder
+          </h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
+            onClick={() => resetTemplate("templateDues", DEFAULT_DUES_TEMPLATE)}
+          >
+            Reset to Default
+          </Button>
+        </div>
+        <Field label="Message Text Template">
+          <Textarea
+            rows={4}
+            value={form.templateDues}
+            onChange={(e) => setForm({ ...form, templateDues: e.target.value })}
+            className="text-xs font-mono font-medium"
+          />
+        </Field>
+        <div className="text-[10px] text-muted-foreground space-y-1">
+          <span className="font-semibold text-foreground">Available Tags:</span>
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {["{{companyName}}", "{{customerName}}", "{{outstanding}}"].map((tag) => (
+              <code key={tag} className="bg-muted px-1.5 py-0.5 rounded border text-[9px] font-bold text-foreground">
+                {tag}
+              </code>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Girvi Loan Reminder Template Card */}
+      <div className="space-y-4 rounded-lg border p-4 bg-card shadow-2xs">
+        <div className="flex items-center justify-between border-b pb-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            3. Girvi Loan Dues Reminder
+          </h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
+            onClick={() => resetTemplate("templateGirvi", DEFAULT_GIRVI_TEMPLATE)}
+          >
+            Reset to Default
+          </Button>
+        </div>
+        <Field label="Message Text Template">
+          <Textarea
+            rows={5}
+            value={form.templateGirvi}
+            onChange={(e) => setForm({ ...form, templateGirvi: e.target.value })}
+            className="text-xs font-mono font-medium"
+          />
+        </Field>
+        <div className="text-[10px] text-muted-foreground space-y-1">
+          <span className="font-semibold text-foreground">Available Tags:</span>
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {["{{companyName}}", "{{customerName}}", "{{loanNo}}", "{{loanDate}}", "{{loanAmount}}", "{{interestOutstanding}}", "{{totalDues}}"].map((tag) => (
+              <code key={tag} className="bg-muted px-1.5 py-0.5 rounded border text-[9px] font-bold text-foreground">
+                {tag}
+              </code>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Schemes Installment Template Card */}
+      <div className="space-y-4 rounded-lg border p-4 bg-card shadow-2xs">
+        <div className="flex items-center justify-between border-b pb-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            4. Gold Scheme Installment Reminder
+          </h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
+            onClick={() => resetTemplate("templateScheme", DEFAULT_SCHEME_TEMPLATE)}
+          >
+            Reset to Default
+          </Button>
+        </div>
+        <Field label="Message Text Template">
+          <Textarea
+            rows={5}
+            value={form.templateScheme}
+            onChange={(e) => setForm({ ...form, templateScheme: e.target.value })}
+            className="text-xs font-mono font-medium"
+          />
+        </Field>
+        <div className="text-[10px] text-muted-foreground space-y-1">
+          <span className="font-semibold text-foreground">Available Tags:</span>
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {["{{companyName}}", "{{customerName}}", "{{monthlyAmount}}", "{{accountNo}}", "{{dueDate}}"].map((tag) => (
+              <code key={tag} className="bg-muted px-1.5 py-0.5 rounded border text-[9px] font-bold text-foreground">
+                {tag}
+              </code>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between border-t pt-4">
+        <span className="text-[11px] text-muted-foreground">
+          Double curly braces (e.g. <code>{"{{tag}}"}</code>) represent auto-filled database parameters.
+        </span>
+        <Button type="submit" disabled={saving} className="bg-primary text-primary-foreground font-semibold">
+          {saving ? "Saving Templates..." : "Save Message Templates"}
+        </Button>
+      </div>
+    </form>
   )
 }

@@ -7,6 +7,7 @@ import { formatAmount } from "@/lib/format"
 import { toCsv, downloadText } from "@/lib/csv"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
+import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -406,6 +407,7 @@ function Placeholder({ text }: { text: string }) {
 }
 
 function Debtors() {
+  const company = useSession((s) => s.company)
   const debtors = useLiveQuery(() => ledgerService.sundryDebtors(), [], [])
 
   const totalOutstanding = useMemo(() => {
@@ -424,8 +426,16 @@ function Debtors() {
   const handleWhatsApp = (mobile: string, name: string, outstanding: number) => {
     const cleanPhone = mobile.trim().replace(/\D/g, "")
     const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
-    const message = `Dear ${name}, this is a gentle reminder that your outstanding balance is ₹${formatAmount(outstanding)}. Please clear the dues at your earliest convenience. Thank you!`
-    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(message)}`
+    
+    const defaultTemplate = "Dear {{customerName}}, this is a gentle reminder that your outstanding balance is ₹{{outstanding}}. Please clear the dues at your earliest convenience. Thank you!"
+    const template = company?.templateDues || defaultTemplate
+
+    const text = template
+      .replace(/{{customerName}}/g, name)
+      .replace(/{{outstanding}}/g, formatAmount(outstanding))
+      .replace(/{{companyName}}/g, company?.name || "")
+
+    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`
     window.open(url, "_blank")
   }
 
