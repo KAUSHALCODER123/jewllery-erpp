@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
 import { useLiveQuery } from "dexie-react-hooks"
 import { useRef } from "react"
-import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload } from "lucide-react"
+import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload, Printer } from "lucide-react"
 import { toast } from "sonner"
 import type { UserRole } from "@/db/systemDb"
+import { Textarea } from "@/components/ui/textarea"
 import { authService } from "@/services/authService"
 import { maintenanceService, type BackupFile } from "@/services/dbService"
 import { switchCompany, activeCompanyId } from "@/db/database"
@@ -36,11 +37,12 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Shop profile · Firms · Users" />
+      <PageHeader title="Settings" subtitle="Shop profile · Print layouts · Firms · Users" />
       <Tabs defaultValue="shop" className="flex min-h-0 flex-1 flex-col">
         <div className="border-b px-4 py-2">
           <TabsList>
             <TabsTrigger value="shop">Shop Profile</TabsTrigger>
+            <TabsTrigger value="print">Print Layout</TabsTrigger>
             <TabsTrigger value="firms">Firms</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="account">My Account</TabsTrigger>
@@ -49,6 +51,9 @@ export function SettingsPage() {
         </div>
         <TabsContent value="shop" className="min-h-0 flex-1 overflow-auto p-4">
           <ShopProfile />
+        </TabsContent>
+        <TabsContent value="print" className="min-h-0 flex-1 overflow-auto p-4">
+          <PrintSettings />
         </TabsContent>
         <TabsContent value="firms" className="min-h-0 flex-1 overflow-auto p-4">
           <Firms />
@@ -133,6 +138,280 @@ function ShopProfile() {
         />
       </Field>
       <Button onClick={() => void save()}>Save Shop Profile</Button>
+    </div>
+  )
+}
+
+function PrintSettings() {
+  const company = useSession((s) => s.company)
+  const setCompanyProfile = useSession((s) => s.setCompanyProfile)
+  const [form, setForm] = useState({
+    printPaperSize: "A5" as "A4" | "A5" | "80mm",
+    printShowLogo: false,
+    printLogoUrl: "",
+    printBankName: "",
+    printBankAccountNo: "",
+    printBankIfsc: "",
+    printBankBranch: "",
+    printTermsText: "",
+    printShowHuid: true,
+    printAccentColor: "#000000",
+  })
+  const [colorMode, setColorMode] = useState("default")
+
+  useEffect(() => {
+    if (company) {
+      setForm({
+        printPaperSize: company.printPaperSize ?? "A5",
+        printShowLogo: company.printShowLogo ?? false,
+        printLogoUrl: company.printLogoUrl ?? "",
+        printBankName: company.printBankName ?? "",
+        printBankAccountNo: company.printBankAccountNo ?? "",
+        printBankIfsc: company.printBankIfsc ?? "",
+        printBankBranch: company.printBankBranch ?? "",
+        printTermsText: company.printTermsText ?? "",
+        printShowHuid: company.printShowHuid ?? true,
+        printAccentColor: company.printAccentColor ?? "#000000",
+      })
+
+      const accentColor = company.printAccentColor ?? "#000000"
+      if (accentColor === "#000000" || accentColor === "") setColorMode("default")
+      else if (accentColor === "#d97706") setColorMode("gold")
+      else if (accentColor === "#059669") setColorMode("emerald")
+      else if (accentColor === "#4f46e5") setColorMode("indigo")
+      else if (accentColor === "#dc2626") setColorMode("crimson")
+      else setColorMode("custom")
+    }
+  }, [company])
+
+  const handleColorModeChange = (mode: string) => {
+    setColorMode(mode)
+    let hex = "#000000"
+    if (mode === "gold") hex = "#d97706"
+    else if (mode === "emerald") hex = "#059669"
+    else if (mode === "indigo") hex = "#4f46e5"
+    else if (mode === "crimson") hex = "#dc2626"
+    else if (mode === "custom") hex = form.printAccentColor || "#d97706"
+    setForm((f) => ({ ...f, printAccentColor: hex }))
+  }
+
+  const onLogoUpload = (file?: File) => {
+    if (!file) return
+    if (file.size > 2_000_000) {
+      toast.error("Logo size too large (max 2 MB)")
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => setForm((f) => ({ ...f, printLogoUrl: reader.result as string }))
+    reader.readAsDataURL(file)
+  }
+
+  const save = async () => {
+    if (!company?.id) return
+    const patch = {
+      printPaperSize: form.printPaperSize,
+      printShowLogo: form.printShowLogo,
+      printLogoUrl: form.printLogoUrl,
+      printBankName: form.printBankName.trim(),
+      printBankAccountNo: form.printBankAccountNo.trim(),
+      printBankIfsc: form.printBankIfsc.trim().toUpperCase(),
+      printBankBranch: form.printBankBranch.trim(),
+      printTermsText: form.printTermsText.trim(),
+      printShowHuid: form.printShowHuid,
+      printAccentColor: form.printAccentColor,
+    }
+    await authService.updateCompany(company.id, patch)
+    setCompanyProfile({ ...company, ...patch })
+    toast.success("Print configurations saved successfully")
+  }
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      <div className="space-y-4 rounded-md border p-4 bg-card shadow-xs">
+        <h3 className="text-sm font-semibold border-b pb-2 flex items-center gap-1.5">
+          <Printer className="size-4" /> Layout & Styling
+        </h3>
+        
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Default Paper Size">
+            <Select
+              value={form.printPaperSize}
+              onValueChange={(v) => setForm({ ...form, printPaperSize: v as any })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select paper size" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="A4">A4 (Standard Sheet - 210mm)</SelectItem>
+                <SelectItem value="A5">A5 (Half Sheet - 148mm)</SelectItem>
+                <SelectItem value="80mm">80mm (Thermal Roll)</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label="Print Accent Color">
+            <Select value={colorMode} onValueChange={handleColorModeChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select accent color" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default">Default Black (#000000)</SelectItem>
+                <SelectItem value="gold">Gold (#D97706)</SelectItem>
+                <SelectItem value="emerald">Emerald Green (#059669)</SelectItem>
+                <SelectItem value="indigo">Indigo Blue (#4F46E5)</SelectItem>
+                <SelectItem value="crimson">Crimson Red (#DC2626)</SelectItem>
+                <SelectItem value="custom">Custom Hex Color...</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+
+        {colorMode === "custom" && (
+          <div className="max-w-xs pt-1">
+            <Field label="Custom Hex Code">
+              <div className="flex gap-2 items-center">
+                <Input
+                  type="text"
+                  placeholder="#000000"
+                  maxLength={7}
+                  value={form.printAccentColor}
+                  onChange={(e) => setForm({ ...form, printAccentColor: e.target.value })}
+                  className="font-mono"
+                />
+                <input
+                  type="color"
+                  value={form.printAccentColor.startsWith("#") && form.printAccentColor.length === 7 ? form.printAccentColor : "#000000"}
+                  onChange={(e) => setForm({ ...form, printAccentColor: e.target.value })}
+                  className="size-8 cursor-pointer rounded-md border"
+                />
+              </div>
+            </Field>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Show HUID column on Sales Invoice">
+            <Select
+              value={form.printShowHuid ? "yes" : "no"}
+              onValueChange={(v) => setForm({ ...form, printShowHuid: v === "yes" })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="yes">Show HUID Column</SelectItem>
+                <SelectItem value="no">Hide HUID Column</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-md border p-4 bg-card shadow-xs">
+        <h3 className="text-sm font-semibold border-b pb-2">Logo Settings</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+          <Field label="Logo Visibility" className="col-span-1">
+            <Select
+              value={form.printShowLogo ? "yes" : "no"}
+              onValueChange={(v) => setForm({ ...form, printShowLogo: v === "yes" })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="yes">Print Logo on Header</SelectItem>
+                <SelectItem value="no">Do Not Print Logo</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          {form.printShowLogo && (
+            <div className="col-span-2 space-y-2">
+              <Label className="text-xs text-muted-foreground block">Shop Logo Image</Label>
+              <div className="flex gap-4 items-center">
+                <label className="flex w-24 h-24 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed bg-muted/30 hover:bg-muted">
+                  {form.printLogoUrl ? (
+                    <img src={form.printLogoUrl} alt="Logo" className="w-full h-full object-contain" />
+                  ) : (
+                    <div className="flex flex-col items-center gap-1 text-muted-foreground text-center p-1">
+                      <Upload className="size-4" />
+                      <span className="text-[9px]">Upload logo</span>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => onLogoUpload(e.target.files?.[0])}
+                  />
+                </label>
+                {form.printLogoUrl && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-destructive hover:bg-destructive/10"
+                    onClick={() => setForm((f) => ({ ...f, printLogoUrl: "" }))}
+                  >
+                    Remove Logo
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-md border p-4 bg-card shadow-xs">
+        <h3 className="text-sm font-semibold border-b pb-2">Shop Bank Details (For Invoice Receipts)</h3>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <Field label="Bank Name">
+            <Input
+              placeholder="e.g. State Bank of India"
+              value={form.printBankName}
+              onChange={(e) => setForm({ ...form, printBankName: e.target.value })}
+            />
+          </Field>
+          <Field label="Account Number">
+            <Input
+              placeholder="e.g. 10023485890"
+              value={form.printBankAccountNo}
+              onChange={(e) => setForm({ ...form, printBankAccountNo: e.target.value })}
+            />
+          </Field>
+          <Field label="IFSC Code">
+            <Input
+              placeholder="e.g. SBIN0001234"
+              maxLength={11}
+              className="uppercase"
+              value={form.printBankIfsc}
+              onChange={(e) => setForm({ ...form, printBankIfsc: e.target.value })}
+            />
+          </Field>
+          <Field label="Branch Name">
+            <Input
+              placeholder="e.g. Main Market Branch"
+              value={form.printBankBranch}
+              onChange={(e) => setForm({ ...form, printBankBranch: e.target.value })}
+            />
+          </Field>
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-md border p-4 bg-card shadow-xs">
+        <h3 className="text-sm font-semibold border-b pb-2">Custom Invoice Terms</h3>
+        <Field label="Terms & Conditions Statement">
+          <Textarea
+            placeholder="e.g. Goods once sold cannot be returned. Please check the weight and hallmarks before leaving the counter."
+            value={form.printTermsText}
+            onChange={(e) => setForm({ ...form, printTermsText: e.target.value })}
+            className="min-h-[80px]"
+          />
+        </Field>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-2">
+        <Button onClick={() => void save()}>Save Print Configurations</Button>
+      </div>
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { customersService } from "@/services/dbService"
 import { formatAmount, formatDate, wt } from "@/lib/format"
 import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 /** Printable Pavati (gold-loan pledge receipt). */
 export function PavatiReceipt({
@@ -26,9 +27,19 @@ export function PavatiReceipt({
     undefined,
   )
 
+  const paperSize = company?.printPaperSize ?? "A5"
+  const widthClass = 
+    paperSize === "A4" ? "w-[210mm]" :
+    paperSize === "80mm" ? "w-[80mm]" :
+    "w-[148mm]"
+
+  const isThermal = paperSize === "80mm"
+  const accentColor = company?.printAccentColor || "#000000"
+  const hasAccent = !!company?.printAccentColor && company.printAccentColor !== "#000000"
+
   return (
     <div className="print-overlay fixed inset-0 z-50 flex flex-col items-center overflow-auto bg-black/40 p-6">
-      <div className="no-print mb-3 flex w-[148mm] items-center justify-between">
+      <div className={cn("no-print mb-3 flex items-center justify-between", widthClass)}>
         <span className="text-sm font-medium text-white">
           Pavati {loan.loanNo}
         </span>
@@ -42,17 +53,41 @@ export function PavatiReceipt({
         </div>
       </div>
 
-      <div className="print-area w-[148mm] bg-white p-6 text-[12px] text-black shadow-xl">
-        <div className="flex items-start justify-between border-b-2 border-black pb-2">
-          <div>
-            <h1 className="text-lg font-bold">{SHOP.name}</h1>
-            <p className="text-[11px]">{SHOP.address}</p>
-            <p className="text-[11px]">Ph: {SHOP.phone}</p>
+      <div
+        className={cn(
+          "print-area bg-white text-black shadow-xl border-t-[4px]",
+          widthClass,
+          isThermal ? "p-3 text-[10px]" : "p-6 text-[12px]"
+        )}
+        style={hasAccent ? { borderTopColor: accentColor } : undefined}
+      >
+        <div
+          className="flex items-start justify-between border-b-2 border-black pb-2"
+          style={hasAccent ? { borderBottomColor: accentColor } : undefined}
+        >
+          <div className="flex items-start gap-2.5">
+            {company?.printShowLogo && company?.printLogoUrl && (
+              <img
+                src={company.printLogoUrl}
+                alt="Logo"
+                className={cn("object-contain", isThermal ? "size-8" : "size-12")}
+              />
+            )}
+            <div>
+              <h1 className={cn("font-bold", isThermal ? "text-sm" : "text-lg")}>{SHOP.name}</h1>
+              <p className="text-[10px] leading-tight">{SHOP.address}</p>
+              <p className="text-[10px] leading-tight">Ph: {SHOP.phone}</p>
+            </div>
           </div>
           <div className="text-right">
-            <p className="text-sm font-bold">GIRVI PAVATI</p>
-            <p className="text-[11px]">No: {loan.loanNo}</p>
-            <p className="text-[11px]">Date: {formatDate(loan.date)}</p>
+            <p
+              className={cn("font-bold", isThermal ? "text-xs" : "text-sm")}
+              style={hasAccent ? { color: accentColor } : undefined}
+            >
+              GIRVI PAVATI
+            </p>
+            <p className="text-[10px] leading-tight">No: {loan.loanNo}</p>
+            <p className="text-[10px] leading-tight">Date: {formatDate(loan.date)}</p>
           </div>
         </div>
 
@@ -76,7 +111,10 @@ export function PavatiReceipt({
 
         <table className="mt-2 w-full border-collapse text-[11px]">
           <thead>
-            <tr className="border-b border-black [&>th]:py-1 [&>th]:text-left">
+            <tr
+              className="border-b border-black [&>th]:py-1 [&>th]:text-left"
+              style={hasAccent ? { borderBottomColor: accentColor } : undefined}
+            >
               <th>#</th>
               <th>Pledged Item</th>
               <th>Purity</th>
@@ -116,10 +154,14 @@ export function PavatiReceipt({
           </div>
         </div>
 
-        <p className="mt-4 text-[10px] text-black/60">
+        <p
+          className="mt-4 text-[10px] text-black/60 border-t pt-2"
+          style={hasAccent ? { borderTopColor: accentColor } : undefined}
+        >
           The above goods are pledged as security for the loan. Interest accrues
           monthly. Goods will be returned on full repayment of principal plus
           interest. Subject to shop terms &amp; statutory pawn-broking rules.
+          {company?.printTermsText ? ` · ${company.printTermsText}` : ""}
         </p>
         <div className="mt-6 flex justify-between text-[11px]">
           <span>Borrower Signature</span>

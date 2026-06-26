@@ -5,6 +5,7 @@ import { customersService } from "@/services/dbService"
 import { formatAmount, formatDate } from "@/lib/format"
 import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 export function PaymentReceipt({
   loan,
@@ -27,6 +28,16 @@ export function PaymentReceipt({
     undefined,
   )
 
+  const paperSize = company?.printPaperSize ?? "A5"
+  const widthClass = 
+    paperSize === "A4" ? "w-[210mm]" :
+    paperSize === "80mm" ? "w-[80mm]" :
+    "w-[148mm]"
+
+  const isThermal = paperSize === "80mm"
+  const accentColor = company?.printAccentColor || "#000000"
+  const hasAccent = !!company?.printAccentColor && company.printAccentColor !== "#000000"
+
   const paymentTitle = 
     payment.type === "part" ? "PART REPAYMENT RECEIPT" :
     payment.type === "renewal" ? "LOAN RENEWAL VOUCHER" :
@@ -34,7 +45,7 @@ export function PaymentReceipt({
 
   return (
     <div className="print-overlay fixed inset-0 z-[60] flex flex-col items-center overflow-auto bg-black/40 p-6">
-      <div className="no-print mb-3 flex w-[148mm] items-center justify-between">
+      <div className={cn("no-print mb-3 flex items-center justify-between", widthClass)}>
         <span className="text-sm font-medium text-white">
           Payment Receipt for {loan.loanNo}
         </span>
@@ -48,17 +59,41 @@ export function PaymentReceipt({
         </div>
       </div>
 
-      <div className="print-area w-[148mm] bg-white p-6 text-[12px] text-black shadow-xl">
-        <div className="flex items-start justify-between border-b-2 border-black pb-2">
-          <div>
-            <h1 className="text-lg font-bold">{SHOP.name}</h1>
-            <p className="text-[11px]">{SHOP.address}</p>
-            <p className="text-[11px]">Ph: {SHOP.phone}</p>
+      <div
+        className={cn(
+          "print-area bg-white text-black shadow-xl border-t-[4px]",
+          widthClass,
+          isThermal ? "p-3 text-[10px]" : "p-6 text-[12px]"
+        )}
+        style={hasAccent ? { borderTopColor: accentColor } : undefined}
+      >
+        <div
+          className="flex items-start justify-between border-b-2 border-black pb-2"
+          style={hasAccent ? { borderBottomColor: accentColor } : undefined}
+        >
+          <div className="flex items-start gap-2.5">
+            {company?.printShowLogo && company?.printLogoUrl && (
+              <img
+                src={company.printLogoUrl}
+                alt="Logo"
+                className={cn("object-contain", isThermal ? "size-8" : "size-12")}
+              />
+            )}
+            <div>
+              <h1 className={cn("font-bold", isThermal ? "text-sm" : "text-lg")}>{SHOP.name}</h1>
+              <p className="text-[10px] leading-tight">{SHOP.address}</p>
+              <p className="text-[10px] leading-tight">Ph: {SHOP.phone}</p>
+            </div>
           </div>
           <div className="text-right">
-            <p className="text-sm font-bold">{paymentTitle}</p>
-            <p className="text-[11px]">Receipt No: PAY-{payment.id || "TEMP"}</p>
-            <p className="text-[11px]">Date: {formatDate(payment.date)}</p>
+            <p
+              className={cn("font-bold", isThermal ? "text-xs" : "text-sm")}
+              style={hasAccent ? { color: accentColor } : undefined}
+            >
+              {paymentTitle}
+            </p>
+            <p className="text-[10px] leading-tight">Receipt No: PAY-{payment.id || "TEMP"}</p>
+            <p className="text-[10px] leading-tight">Date: {formatDate(payment.date)}</p>
           </div>
         </div>
 
@@ -80,7 +115,10 @@ export function PaymentReceipt({
 
         <table className="mt-4 w-full border-collapse text-[11px]">
           <thead>
-            <tr className="border-b border-black [&>th]:py-1 [&>th]:text-left">
+            <tr
+              className="border-b border-black [&>th]:py-1 [&>th]:text-left"
+              style={hasAccent ? { borderBottomColor: accentColor } : undefined}
+            >
               <th>Particulars</th>
               <th className="text-right">Amount</th>
             </tr>
@@ -107,9 +145,13 @@ export function PaymentReceipt({
           </div>
         )}
 
-        <div className="mt-4 text-[10px] text-black/60">
+        <div
+          className="mt-4 text-[10px] text-black/60 border-t pt-2"
+          style={hasAccent ? { borderTopColor: accentColor } : undefined}
+        >
           This is a transaction receipt for the payment received against gold loan {loan.loanNo}.
           Interest balances are updated chronologically. Keep this voucher safe for future reference.
+          {company?.printTermsText ? ` · ${company.printTermsText}` : ""}
         </div>
 
         <div className="mt-8 flex justify-between text-[11px]">

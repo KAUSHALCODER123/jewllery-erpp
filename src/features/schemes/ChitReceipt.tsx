@@ -5,6 +5,7 @@ import { customersService, addMonths } from "@/services/dbService"
 import { formatAmount, formatDate } from "@/lib/format"
 import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 export function ChitReceipt({
   account,
@@ -24,6 +25,16 @@ export function ChitReceipt({
     phone: company?.phone ?? "",
   }
 
+  const paperSize = company?.printPaperSize ?? "80mm"
+  const widthClass = 
+    paperSize === "A4" ? "w-[210mm]" :
+    paperSize === "A5" ? "w-[148mm]" :
+    "w-[80mm]"
+
+  const isThermal = paperSize === "80mm"
+  const accentColor = company?.printAccentColor || "#000000"
+  const hasAccent = !!company?.printAccentColor && company.printAccentColor !== "#000000"
+
   const customer = useLiveQuery(
     () => customersService.get(account.customerId),
     [account.customerId],
@@ -36,7 +47,7 @@ export function ChitReceipt({
 
   return (
     <div className="print-overlay fixed inset-0 z-50 flex flex-col items-center overflow-auto bg-black/40 p-6">
-      <div className="no-print mb-3 flex w-[80mm] items-center justify-between">
+      <div className={cn("no-print mb-3 flex items-center justify-between", widthClass)}>
         <span className="text-sm font-medium text-white">Chit #{payment.id}</span>
         <div className="flex gap-2">
           <Button size="sm" onClick={() => window.print()}>
@@ -48,9 +59,19 @@ export function ChitReceipt({
         </div>
       </div>
 
-      <div className="print-area w-[80mm] bg-white p-4 text-[11px] text-black shadow-xl font-mono">
-        <div className="text-center border-b border-dashed border-black pb-2">
-          <h2 className="text-sm font-bold uppercase">{SHOP.name}</h2>
+      <div
+        className={cn(
+          "print-area bg-white text-black shadow-xl font-mono border-t-[4px]",
+          widthClass,
+          isThermal ? "p-4 text-[11px]" : "p-8 text-[13px]"
+        )}
+        style={hasAccent ? { borderTopColor: accentColor } : undefined}
+      >
+        <div className="text-center border-b border-dashed border-black pb-2" style={hasAccent ? { borderBottomColor: accentColor } : undefined}>
+          {company?.printShowLogo && company?.printLogoUrl && (
+            <img src={company.printLogoUrl} alt="Logo" className="mx-auto h-10 w-10 object-contain mb-1.5" />
+          )}
+          <h2 className={cn("font-bold uppercase", isThermal ? "text-sm" : "text-base")}>{SHOP.name}</h2>
           <p className="text-[10px]">{SHOP.address}</p>
           <p className="text-[10px]">Ph: {SHOP.phone}</p>
           <p className="mt-1 font-semibold border border-black px-2 py-0.5 inline-block text-[10px]">

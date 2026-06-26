@@ -31,6 +31,17 @@ export interface Company {
   gstin?: string
   phone?: string
   createdAt?: string
+  // Print settings
+  printPaperSize?: "A4" | "A5" | "80mm"
+  printShowLogo?: boolean
+  printLogoUrl?: string
+  printBankName?: string
+  printBankAccountNo?: string
+  printBankIfsc?: string
+  printBankBranch?: string
+  printTermsText?: string
+  printShowHuid?: boolean
+  printAccentColor?: string
 }
 
 export class SystemDatabase extends Dexie {
