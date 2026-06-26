@@ -42,6 +42,11 @@ export interface Company {
   printTermsText?: string
   printShowHuid?: boolean
   printAccentColor?: string
+  // Default constants & rates
+  defaultGstRate?: number
+  defaultHsnCode?: string
+  loyaltyEarnPerGram?: number
+  loyaltyRupeesPerPoint?: number
 }
 
 export class SystemDatabase extends Dexie {

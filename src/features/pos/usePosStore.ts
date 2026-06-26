@@ -1,6 +1,7 @@
 import { create } from "zustand"
 import type { Item, SalesInvoice, SalesItem, UrdItem } from "@/db/types"
 import type { SalesLine, UrdLine } from "./calc"
+import { useSession } from "@/stores/useSession"
 
 /** Generate a local row id. */
 const rid = (): string =>
@@ -84,7 +85,7 @@ export const usePosStore = create<PosState>((set) => ({
   customerId: null,
   sales: [],
   urd: [],
-  gstRate: 3,
+  gstRate: useSession.getState().company?.defaultGstRate ?? 3,
   cashPaid: 0,
   upiPaid: 0,
   notes: "",
@@ -205,7 +206,7 @@ export const usePosStore = create<PosState>((set) => ({
       customerId: null,
       sales: [],
       urd: [],
-      gstRate: 3,
+      gstRate: useSession.getState().company?.defaultGstRate ?? 3,
       cashPaid: 0,
       upiPaid: 0,
       notes: "",

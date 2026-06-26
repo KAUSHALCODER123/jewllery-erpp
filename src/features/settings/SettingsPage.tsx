@@ -42,7 +42,7 @@ export function SettingsPage() {
         <div className="border-b px-4 py-2">
           <TabsList>
             <TabsTrigger value="shop">Shop Profile</TabsTrigger>
-            <TabsTrigger value="print">Print Layout</TabsTrigger>
+            <TabsTrigger value="print">Print & Rates</TabsTrigger>
             <TabsTrigger value="firms">Firms</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="account">My Account</TabsTrigger>
@@ -156,6 +156,10 @@ function PrintSettings() {
     printTermsText: "",
     printShowHuid: true,
     printAccentColor: "#000000",
+    defaultGstRate: 3,
+    defaultHsnCode: "7113",
+    loyaltyEarnPerGram: 1,
+    loyaltyRupeesPerPoint: 1,
   })
   const [colorMode, setColorMode] = useState("default")
 
@@ -172,6 +176,10 @@ function PrintSettings() {
         printTermsText: company.printTermsText ?? "",
         printShowHuid: company.printShowHuid ?? true,
         printAccentColor: company.printAccentColor ?? "#000000",
+        defaultGstRate: company.defaultGstRate ?? 3,
+        defaultHsnCode: company.defaultHsnCode ?? "7113",
+        loyaltyEarnPerGram: company.loyaltyEarnPerGram ?? 1,
+        loyaltyRupeesPerPoint: company.loyaltyRupeesPerPoint ?? 1,
       })
 
       const accentColor = company.printAccentColor ?? "#000000"
@@ -219,6 +227,10 @@ function PrintSettings() {
       printTermsText: form.printTermsText.trim(),
       printShowHuid: form.printShowHuid,
       printAccentColor: form.printAccentColor,
+      defaultGstRate: form.defaultGstRate,
+      defaultHsnCode: form.defaultHsnCode.trim(),
+      loyaltyEarnPerGram: form.loyaltyEarnPerGram,
+      loyaltyRupeesPerPoint: form.loyaltyRupeesPerPoint,
     }
     await authService.updateCompany(company.id, patch)
     setCompanyProfile({ ...company, ...patch })
@@ -392,6 +404,42 @@ function PrintSettings() {
               placeholder="e.g. Main Market Branch"
               value={form.printBankBranch}
               onChange={(e) => setForm({ ...form, printBankBranch: e.target.value })}
+            />
+          </Field>
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-md border p-4 bg-card shadow-xs">
+        <h3 className="text-sm font-semibold border-b pb-2">Default Rates & Loyalty Rules</h3>
+        <div className="grid grid-cols-2 gap-3 text-xs">
+          <Field label="Default GST Rate (%)">
+            <Input
+              type="number"
+              step="0.1"
+              value={form.defaultGstRate}
+              onChange={(e) => setForm({ ...form, defaultGstRate: e.target.value === "" ? 3 : e.target.valueAsNumber || 0 })}
+            />
+          </Field>
+          <Field label="Default HSN Code">
+            <Input
+              value={form.defaultHsnCode}
+              onChange={(e) => setForm({ ...form, defaultHsnCode: e.target.value })}
+            />
+          </Field>
+          <Field label="Loyalty Earn Rate (Points per Gram)">
+            <Input
+              type="number"
+              step="0.1"
+              value={form.loyaltyEarnPerGram}
+              onChange={(e) => setForm({ ...form, loyaltyEarnPerGram: e.target.value === "" ? 1 : e.target.valueAsNumber || 0 })}
+            />
+          </Field>
+          <Field label="Loyalty Point Value (₹ per Point)">
+            <Input
+              type="number"
+              step="0.1"
+              value={form.loyaltyRupeesPerPoint}
+              onChange={(e) => setForm({ ...form, loyaltyRupeesPerPoint: e.target.value === "" ? 1 : e.target.valueAsNumber || 0 })}
             />
           </Field>
         </div>

@@ -5,8 +5,8 @@ import { toast } from "sonner"
 import type { SaleDraft } from "@/services/dbService"
 import { salesService, customersService, todayStr } from "@/services/dbService"
 import { formatAmount, formatINR } from "@/lib/format"
-import { LOYALTY_EARN_PER_GRAM, LOYALTY_RUPEES_PER_POINT } from "@/lib/constants"
 import { cn } from "@/lib/utils"
+import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -34,6 +34,9 @@ export function CheckoutPane({
   onSaved: (payload: PrintPayload) => void
 }) {
   const store = usePosStore()
+  const company = useSession((s) => s.company)
+  const rupeesPerPoint = company?.loyaltyRupeesPerPoint ?? 1
+  const earnPerGram = company?.loyaltyEarnPerGram ?? 1
   const {
     customerId,
     sales,
@@ -69,7 +72,7 @@ export function CheckoutPane({
   const availablePoints = customer?.loyaltyPoints ?? 0
   const cappedRedeem = Math.min(Math.max(0, loyaltyRedeem), availablePoints)
   // Don't re-award/redeem when editing an existing bill.
-  const loyaltyDiscount = isEdit ? 0 : cappedRedeem * LOYALTY_RUPEES_PER_POINT
+  const loyaltyDiscount = isEdit ? 0 : cappedRedeem * rupeesPerPoint
 
   const totals = useMemo(
     () =>
@@ -86,7 +89,7 @@ export function CheckoutPane({
 
   const pointsEarned = isEdit
     ? 0
-    : Math.round(totals.salesNetWt * LOYALTY_EARN_PER_GRAM)
+    : Math.round(totals.salesNetWt * earnPerGram)
 
   const canSave = customerId != null && sales.length > 0
 

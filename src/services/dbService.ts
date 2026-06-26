@@ -15,7 +15,8 @@
  */
 
 import { computeLoanDues } from "@/features/girvi/interest"
-import { db } from "@/db/database"
+import { db, activeCompanyId } from "@/db/database"
+import { systemDb } from "@/db/systemDb"
 import type {
   Counter,
   Customer,
@@ -1072,6 +1073,9 @@ export const ledgerService = {
     qty: number
     netWt: number
   }[]> {
+    const company = await systemDb.companies.get(activeCompanyId())
+    const defaultHsn = company?.defaultHsnCode || "7113"
+
     const invoices = (await db.sales_invoices.toArray()).filter((i) =>
       i.date.startsWith(month),
     )
@@ -1094,7 +1098,7 @@ export const ledgerService = {
       const totalGross = inv.totalGrossAmount || 1
 
       for (const item of items) {
-        const hsn = item.hsn || "7113"
+        const hsn = item.hsn || defaultHsn
         const prop = item.finalAmount / totalGross
 
         const lineTaxable = round(prop * inv.taxableAmount)

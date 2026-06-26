@@ -12,6 +12,7 @@ import {
 } from "@/lib/constants"
 import { computeNetWt, itemsService } from "@/services/dbService"
 import { formatWt } from "@/lib/format"
+import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -62,6 +63,9 @@ export function ItemFormDialog({
   /** When set, the dialog edits an existing item instead of creating one. */
   editItem?: Item | null
 }) {
+  const company = useSession((s) => s.company)
+  const defaultHsn = company?.defaultHsnCode || "7113"
+
   const form = useForm<ItemFormValues>({
     resolver: zodResolver(itemSchema),
     defaultValues: emptyValues,
@@ -81,13 +85,16 @@ export function ItemFormDialog({
         makingChargePerGm: editItem.makingChargePerGm,
         quantity: editItem.quantity ?? 1,
         huid: editItem.huid ?? "",
-        hsn: editItem.hsn ?? "7113",
+        hsn: editItem.hsn ?? defaultHsn,
         tag: editItem.tag,
       })
     } else {
-      form.reset(emptyValues)
+      form.reset({
+        ...emptyValues,
+        hsn: defaultHsn,
+      })
     }
-  }, [open, editItem, form])
+  }, [open, editItem, form, defaultHsn])
 
   const grossWt = form.watch("grossWt")
   const stoneWt = form.watch("stoneWt")
