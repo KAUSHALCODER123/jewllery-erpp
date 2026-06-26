@@ -93,18 +93,21 @@ export function CheckoutPane({
 
   const canSave = customerId != null && sales.length > 0
 
-  // F12 = Save & Print (keyboard-first billing).
+  // F12 = Save & Print (keyboard-first billing), F9 = Toggle interstate billing.
   const saveRef = useRef<() => void>(() => {})
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "F12") {
         e.preventDefault()
         saveRef.current()
+      } else if (e.key === "F9") {
+        e.preventDefault()
+        setInterState(!usePosStore.getState().interState)
       }
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [])
+  }, [setInterState])
 
   const handleSave = async () => {
     if (customerId == null) {

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useLiveQuery } from "dexie-react-hooks"
 import { Check, ChevronsUpDown, UserPlus, User, Zap } from "lucide-react"
 import { toast } from "sonner"
@@ -29,6 +29,17 @@ export function PosTopBar() {
   const [open, setOpen] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [query, setQuery] = useState("")
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "F8") {
+        e.preventDefault()
+        setOpen(true)
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
 
   const customers = useLiveQuery(() => customersService.getAll(), [], [])
   const selected = customers.find((c) => c.id === customerId) ?? null

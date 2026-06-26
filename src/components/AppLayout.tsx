@@ -1,4 +1,5 @@
-import { NavLink, Outlet } from "react-router-dom"
+import { useEffect } from "react"
+import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -53,6 +54,39 @@ export function AppLayout() {
   const company = useSession((s) => s.company)
   const financialYear = useSession((s) => s.financialYear)
   const logout = useSession((s) => s.logout)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      switch (e.key) {
+        case "F1":
+          e.preventDefault()
+          navigate("/")
+          break
+        case "F2":
+          e.preventDefault()
+          navigate("/billing")
+          break
+        case "F3":
+          e.preventDefault()
+          navigate("/inventory")
+          break
+        case "F4":
+          e.preventDefault()
+          navigate("/schemes")
+          break
+        case "F6":
+          e.preventDefault()
+          navigate("/girvi")
+          break
+        default:
+          break
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [navigate])
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">

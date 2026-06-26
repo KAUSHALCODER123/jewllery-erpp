@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useRef, useState, useEffect } from "react"
 import { Barcode, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { itemsService } from "@/services/dbService"
@@ -18,6 +18,19 @@ export function SalesGrid() {
 
   const [scan, setScan] = useState("")
   const scanRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    scanRef.current?.focus()
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "F10") {
+        e.preventDefault()
+        scanRef.current?.focus()
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
 
   const handleScan = async () => {
     const tag = scan.trim().toUpperCase()
