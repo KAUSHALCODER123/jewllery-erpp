@@ -261,7 +261,7 @@ export function LoanDetailsDialog({
                         <h4 className="text-xs font-semibold capitalize text-foreground">
                           Record {payAction === "part" ? "Part Repayment" : payAction === "renewal" ? "Loan Renewal" : "Loan Closure"}
                         </h4>
-                        <Button variant="ghost" size="icon" className="size-5" onClick={() => setPayAction(null)}>
+                        <Button variant="ghost" size="icon" className="size-5" aria-label="Cancel" onClick={() => setPayAction(null)}>
                           <X className="size-3" />
                         </Button>
                       </div>

@@ -159,7 +159,7 @@ export function CustomersPage() {
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-7">
+                          <Button variant="ghost" size="icon" className="size-7" aria-label="Customer actions">
                             <MoreHorizontal className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>

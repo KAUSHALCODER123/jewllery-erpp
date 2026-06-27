@@ -201,7 +201,7 @@ export function InventoryPage() {
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="size-7">
+                          <Button variant="ghost" size="icon" className="size-7" aria-label="Item actions">
                             <MoreHorizontal className="size-4" />
                           </Button>
                         </DropdownMenuTrigger>

@@ -65,6 +65,7 @@ export function SalesGrid() {
               }
             }}
             placeholder="Scan / type barcode tag, press Enter…"
+            aria-label="Barcode scan"
             className="pl-8 uppercase"
             autoFocus
           />

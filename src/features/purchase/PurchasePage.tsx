@@ -169,6 +169,8 @@ export function PurchasePage() {
                         variant="ghost"
                         size="icon"
                         className="size-7"
+                        aria-label="Edit supplier"
+                        title="Edit supplier"
                         onClick={() => {
                           setEditSupplier(s)
                           setSupplierOpen(true)
