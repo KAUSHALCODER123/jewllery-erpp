@@ -5,11 +5,15 @@ export interface LoanDuesBreakdown {
   months: number
   interestAccrued: number
   interestPaid: number
+  /** Interest cleared by rolling it into principal at renewals (compounding). */
+  interestCapitalised: number
   interestOutstanding: number
   principalPaid: number
   principalOutstanding: number
   totalDues: number
 }
+
+const r2 = (n: number): number => Number(n.toFixed(2))
 
 export function daysElapsed(fromIso: string, toIso: string): number {
   const from = new Date(fromIso)
@@ -74,29 +78,41 @@ export function computeLoanDues(
   let lastDate = loan.date
   let totalInterestAccrued = 0
   let totalInterestPaid = 0
+  let totalInterestCapitalised = 0
   let totalPrincipalPaid = 0
 
   for (const pay of sortedPayments) {
     // Accrue interest up to this payment date on current principal
     const acc = calculateAccruedInterestForInterval(currentPrincipal, rate, lastDate, pay.date, mode)
-    totalInterestAccrued = Number((totalInterestAccrued + acc).toFixed(2))
+    totalInterestAccrued = r2(totalInterestAccrued + acc)
 
-    // In a payment: allocate amount to interest due first
-    // Check if payment is towards interest / principal
-    totalInterestPaid = Number((totalInterestPaid + pay.towardsInterest).toFixed(2))
-    totalPrincipalPaid = Number((totalPrincipalPaid + pay.towardsPrincipal).toFixed(2))
-    currentPrincipal = Number(Math.max(0, currentPrincipal - pay.towardsPrincipal).toFixed(2))
+    // Allocate the recorded split: cash to interest then principal.
+    totalInterestPaid = r2(totalInterestPaid + pay.towardsInterest)
+    totalPrincipalPaid = r2(totalPrincipalPaid + pay.towardsPrincipal)
+    currentPrincipal = r2(Math.max(0, currentPrincipal - pay.towardsPrincipal))
+
+    // Renewal capitalisation: unpaid interest is rolled into the principal, so it
+    // compounds — future intervals accrue on the higher base from this date on.
+    const cap = pay.capitalisedInterest || 0
+    if (cap > 0) {
+      currentPrincipal = r2(currentPrincipal + cap)
+      totalInterestCapitalised = r2(totalInterestCapitalised + cap)
+    }
 
     lastDate = pay.date
   }
 
   // Accrue interest from lastDate to asOfIso
   const finalAcc = calculateAccruedInterestForInterval(currentPrincipal, rate, lastDate, asOfIso, mode)
-  totalInterestAccrued = Number((totalInterestAccrued + finalAcc).toFixed(2))
+  totalInterestAccrued = r2(totalInterestAccrued + finalAcc)
 
-  const interestOutstanding = Number(Math.max(0, totalInterestAccrued - totalInterestPaid).toFixed(2))
-  const principalOutstanding = Number(Math.max(0, loan.loanAmount - totalPrincipalPaid).toFixed(2))
-  const totalDues = Number((principalOutstanding + interestOutstanding).toFixed(2))
+  // Outstanding interest = accrued minus what's been cleared in cash or capitalised.
+  const interestOutstanding = r2(
+    Math.max(0, totalInterestAccrued - totalInterestPaid - totalInterestCapitalised),
+  )
+  // currentPrincipal already reflects repayments and capitalised interest.
+  const principalOutstanding = currentPrincipal
+  const totalDues = r2(principalOutstanding + interestOutstanding)
 
   const totalDays = daysElapsed(loan.date, asOfIso)
   const totalMonths = monthsElapsed(loan.date, asOfIso)
@@ -106,6 +122,7 @@ export function computeLoanDues(
     months: totalMonths,
     interestAccrued: totalInterestAccrued,
     interestPaid: totalInterestPaid,
+    interestCapitalised: totalInterestCapitalised,
     interestOutstanding,
     principalPaid: totalPrincipalPaid,
     principalOutstanding,

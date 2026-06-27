@@ -193,6 +193,8 @@ export interface LoanPayment {
   amount: number
   towardsInterest: number
   towardsPrincipal: number
+  /** Interest rolled into principal at a renewal (compounding). Not a cash receipt. */
+  capitalisedInterest?: number
   type: "part" | "renewal" | "closure"
   notes?: string
 }

@@ -441,20 +441,16 @@ export const loansService = {
       const interestDue = dues.interestOutstanding
 
       // Allocate payment: interest first, then principal (clamped to what's owed).
-      const towardsInterest = Number(Math.min(payment.amount, interestDue).toFixed(2))
-      const towardsPrincipal = Number(
-        Math.min(payment.amount - towardsInterest, dues.principalOutstanding).toFixed(2),
+      const towardsInterest = round(Math.min(payment.amount, interestDue))
+      const towardsPrincipal = round(
+        Math.min(payment.amount - towardsInterest, dues.principalOutstanding),
       )
 
-      const newPrincipal = Number(
-        Math.max(0, dues.principalOutstanding - towardsPrincipal).toFixed(2),
-      )
-      const interestRemaining = Number(Math.max(0, interestDue - towardsInterest).toFixed(2))
-
-      // A loan only closes when BOTH principal and interest are cleared — even a
-      // "closure" payment that falls short must keep the loan open (don't release
-      // collateral on an underpayment).
-      const fullyPaid = newPrincipal <= 0 && interestRemaining <= 0
+      // On RENEWAL, interest the customer did NOT pay in cash is capitalised — rolled
+      // into principal so it compounds from here on. Part/closure never capitalise.
+      const interestShortfall = round(Math.max(0, interestDue - towardsInterest))
+      const capitalisedInterest =
+        payment.type === "renewal" ? interestShortfall : 0
 
       const record: LoanPayment = {
         loanId,
@@ -464,17 +460,32 @@ export const loansService = {
         towardsPrincipal,
         type: payment.type,
         notes: payment.notes,
+        ...(capitalisedInterest > 0 ? { capitalisedInterest } : {}),
       }
 
       const id = await db.loan_payments.add(record)
 
-      const totalCollected = Number(
-        (payments.reduce((s, p) => s + p.amount, 0) + payment.amount).toFixed(2),
+      // Recompute post-payment state via the dues engine so capitalisation is
+      // reflected consistently in principal/interest outstanding.
+      const postDues = computeLoanDues(
+        loan,
+        [...payments, { ...record, id }],
+        payment.date,
+      )
+
+      // A loan only closes when BOTH principal and interest are cleared — even a
+      // "closure" payment that falls short must keep the loan open (don't release
+      // collateral on an underpayment). Capitalisation never closes a loan.
+      const fullyPaid =
+        postDues.principalOutstanding <= 0 && postDues.interestOutstanding <= 0
+
+      const totalCollected = round(
+        payments.reduce((s, p) => s + p.amount, 0) + payment.amount,
       )
 
       // Only overwrite closure fields when actually closing; otherwise leave them.
       await db.loans.update(loanId, {
-        principalOutstanding: newPrincipal,
+        principalOutstanding: postDues.principalOutstanding,
         isClosed: fullyPaid,
         ...(fullyPaid
           ? { closedDate: payment.date, amountCollected: totalCollected }

@@ -100,8 +100,17 @@ export function LoanDetailsDialog({
     }
   }
 
+  // Interest that will be capitalised (rolled into principal) if this renewal is
+  // recorded for less than the outstanding interest.
+  const renewalCapitalised =
+    payAction === "renewal"
+      ? Number(Math.max(0, dues.interestOutstanding - (payAmount || 0)).toFixed(2))
+      : 0
+
   const handleAddPaymentSubmit = async () => {
-    if (payAmount <= 0) {
+    // Renewals may be recorded for 0 (full rollover — all unpaid interest is
+    // capitalised); every other action needs a positive amount.
+    if (payAmount < 0 || (payAmount === 0 && payAction !== "renewal")) {
       toast.error("Please enter a positive amount")
       return
     }
@@ -267,6 +276,14 @@ export function LoanDetailsDialog({
                           <Input type="number" className="h-8 py-0 text-right font-medium tabular" value={payAmount || ""} onChange={(e) => setPayAmount(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)} />
                         </div>
                       </div>
+
+                      {payAction === "renewal" && renewalCapitalised > 0 && (
+                        <p className="rounded bg-amber-50 px-2 py-1 text-[10px] text-amber-800">
+                          Unpaid interest of{" "}
+                          <span className="font-semibold tabular">{formatAmount(renewalCapitalised)}</span>{" "}
+                          will be capitalised (added to principal) and will compound going forward.
+                        </p>
+                      )}
 
                       <div className="space-y-1 text-xs">
                         <Label className="text-[10px]">Notes</Label>
