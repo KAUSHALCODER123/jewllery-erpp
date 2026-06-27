@@ -16,6 +16,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    // Don't watch the Rust side — its target/ holds locked build artifacts
+    // (.dll/.exe) that crash Vite's file watcher with EBUSY on Windows.
+    watch: { ignored: ["**/src-tauri/**"] },
   },
   build: {
     // Routes are code-split (React.lazy); heavy deps like xlsx load on demand.
