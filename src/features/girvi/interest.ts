@@ -19,9 +19,27 @@ export function daysElapsed(fromIso: string, toIso: string): number {
   return Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)))
 }
 
+/** Parse "YYYY-MM-DD" into integer parts (timezone-safe — no Date offset drift). */
+function parseYmd(iso: string): { y: number; m: number; d: number } | null {
+  const parts = iso.slice(0, 10).split("-").map(Number)
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null
+  return { y: parts[0], m: parts[1] - 1, d: parts[2] }
+}
+
+/**
+ * Whole calendar months elapsed, rounding a partial month UP (min 1).
+ * Jan 1 → Feb 1 = 1 month; Jan 1 → Feb 15 = 2; Jan 1 → Jan 31 = 1;
+ * Jan 1 2024 → Jan 1 2025 = 12 (not 13 as a 30-day-block count would give).
+ */
 export function monthsElapsed(fromIso: string, toIso: string): number {
-  const days = daysElapsed(fromIso, toIso)
-  return Math.max(1, Math.ceil(days / 30))
+  const f = parseYmd(fromIso)
+  const t = parseYmd(toIso)
+  if (!f || !t) return 1
+  let months = (t.y - f.y) * 12 + (t.m - f.m)
+  if (t.d < f.d) months -= 1 // anniversary day-of-month not yet reached
+  const isExactAnniversary = t.d === f.d && months >= 0
+  const result = months + (isExactAnniversary ? 0 : 1)
+  return Math.max(1, result)
 }
 
 export function calculateAccruedInterestForInterval(

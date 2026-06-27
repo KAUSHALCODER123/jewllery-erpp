@@ -440,12 +440,21 @@ export const loansService = {
       // Interest outstanding before this payment
       const interestDue = dues.interestOutstanding
 
-      // Allocate payment
-      const towardsInterest = Math.min(payment.amount, interestDue)
-      const towardsPrincipal = payment.amount - towardsInterest
+      // Allocate payment: interest first, then principal (clamped to what's owed).
+      const towardsInterest = Number(Math.min(payment.amount, interestDue).toFixed(2))
+      const towardsPrincipal = Number(
+        Math.min(payment.amount - towardsInterest, dues.principalOutstanding).toFixed(2),
+      )
 
-      const newPrincipal = Math.max(0, dues.principalOutstanding - towardsPrincipal)
-      const isClosure = payment.type === "closure" || newPrincipal <= 0
+      const newPrincipal = Number(
+        Math.max(0, dues.principalOutstanding - towardsPrincipal).toFixed(2),
+      )
+      const interestRemaining = Number(Math.max(0, interestDue - towardsInterest).toFixed(2))
+
+      // A loan only closes when BOTH principal and interest are cleared — even a
+      // "closure" payment that falls short must keep the loan open (don't release
+      // collateral on an underpayment).
+      const fullyPaid = newPrincipal <= 0 && interestRemaining <= 0
 
       const record: LoanPayment = {
         loanId,
@@ -459,12 +468,17 @@ export const loansService = {
 
       const id = await db.loan_payments.add(record)
 
-      // Update loan status and outstanding
+      const totalCollected = Number(
+        (payments.reduce((s, p) => s + p.amount, 0) + payment.amount).toFixed(2),
+      )
+
+      // Only overwrite closure fields when actually closing; otherwise leave them.
       await db.loans.update(loanId, {
         principalOutstanding: newPrincipal,
-        isClosed: isClosure,
-        closedDate: isClosure ? payment.date : undefined,
-        amountCollected: isClosure ? payment.amount : undefined,
+        isClosed: fullyPaid,
+        ...(fullyPaid
+          ? { closedDate: payment.date, amountCollected: totalCollected }
+          : {}),
       })
 
       return { ...record, id }
@@ -691,30 +705,34 @@ export const refiningService = {
     input: Omit<Refining, "id" | "refiningNo" | "createdAt" | "outputItemId">,
     opts: { addToStock?: boolean; outputCategory?: string; outputName?: string } = {},
   ): Promise<Refining> {
-    const { code: refiningNo } = await nextSequence("refining", { prefix: "REF" })
-    let outputItemId: number | undefined
+    // Atomic: melt source, mint output stock, and record the job together so a
+    // mid-failure can never orphan a melted item or leave a stray bullion item.
+    return db.transaction("rw", [db.refinings, db.items, db.counters], async () => {
+      const { code: refiningNo } = await nextSequence("refining", { prefix: "REF" })
+      let outputItemId: number | undefined
 
-    if (input.sourceItemId) {
-      await db.items.update(input.sourceItemId, { status: "melted" })
-    }
-    if (opts.addToStock !== false && input.outputWt > 0) {
-      const created = await itemsService.add({
-        name: opts.outputName ?? `Refined ${input.type} ${input.outputPurity}`,
-        type: input.type,
-        category: opts.outputCategory ?? "Other",
-        purity: input.outputPurity,
-        grossWt: input.outputWt,
-        stoneWt: 0,
-        makingChargePerGm: 0,
-        quantity: 1,
-        tagPrefix: "BUL",
-      })
-      outputItemId = created.id
-    }
+      if (input.sourceItemId) {
+        await db.items.update(input.sourceItemId, { status: "melted" })
+      }
+      if (opts.addToStock !== false && input.outputWt > 0) {
+        const created = await itemsService.add({
+          name: opts.outputName ?? `Refined ${input.type} ${input.outputPurity}`,
+          type: input.type,
+          category: opts.outputCategory ?? "Other",
+          purity: input.outputPurity,
+          grossWt: input.outputWt,
+          stoneWt: 0,
+          makingChargePerGm: 0,
+          quantity: 1,
+          tagPrefix: "BUL",
+        })
+        outputItemId = created.id
+      }
 
-    const record: Refining = { ...input, refiningNo, outputItemId, createdAt: nowIso() }
-    const id = await db.refinings.add(record)
-    return { ...record, id }
+      const record: Refining = { ...input, refiningNo, outputItemId, createdAt: nowIso() }
+      const id = await db.refinings.add(record)
+      return { ...record, id }
+    })
   },
 }
 
@@ -786,6 +804,9 @@ export const schemesService = {
 
   getPayments: (accountId: number): Promise<SchemePayment[]> =>
     db.scheme_payments.where("accountId").equals(accountId).sortBy("installmentNo"),
+
+  /** All scheme payments across accounts (for dashboard pool totals). */
+  getAllPayments: (): Promise<SchemePayment[]> => db.scheme_payments.toArray(),
 
   async getSchedule(accountId: number): Promise<SchemeScheduleRow[]> {
     const account = await db.scheme_accounts.get(accountId)

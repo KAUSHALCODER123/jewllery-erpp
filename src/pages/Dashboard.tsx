@@ -13,7 +13,6 @@ import {
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { db } from "@/db/database"
 import { dbService } from "@/services/dbService"
 import { seedAllIfEmpty } from "@/db/seed"
 import { formatAmount, formatINR, formatWt } from "@/lib/format"
@@ -36,12 +35,12 @@ export function Dashboard() {
     const today = dbService.todayStr()
     const currentMonth = today.substring(0, 7)
 
-    const invoices = await db.sales_invoices.toArray()
-    const customers = await db.customers.toArray()
-    const loans = await db.loans.toArray()
-    const schemeAccounts = await db.scheme_accounts.toArray()
-    const schemePayments = await db.scheme_payments.toArray()
-    const items = await db.items.toArray()
+    const invoices = await dbService.sales.getInvoices()
+    const customers = await dbService.customers.getAll()
+    const loans = await dbService.loans.getAll()
+    const schemeAccounts = await dbService.schemes.getAccounts()
+    const schemePayments = await dbService.schemes.getAllPayments()
+    const items = await dbService.items.getAll()
 
     const customerMap = new Map(customers.map((c) => [c.id, c.name]))
 
@@ -198,7 +197,7 @@ export function Dashboard() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto p-4 space-y-4 max-w-(screen-2xl) mx-auto w-full">
+      <div className="flex-1 overflow-auto p-4 space-y-4 max-w-screen-2xl mx-auto w-full">
         {/* KPI Metrics Ribbon */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {/* Card 1: Sales */}

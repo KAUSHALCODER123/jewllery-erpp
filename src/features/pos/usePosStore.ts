@@ -27,6 +27,10 @@ interface PosState {
   /** Set when editing a saved invoice (vs creating a new one). */
   editingInvoiceId: number | null
   editingInvoiceNo: string | null
+  /** Original loyalty discount/points on the invoice being edited (preserved so
+   *  re-saving an edit doesn't recompute a higher total or re-charge the customer). */
+  editingLoyaltyDiscount: number
+  editingPointsRedeemed: number
   orderId: number | null
   advanceApplied: number
 
@@ -97,6 +101,8 @@ export const usePosStore = create<PosState>((set) => ({
   loyaltyRedeem: 0,
   editingInvoiceId: null,
   editingInvoiceNo: null,
+  editingLoyaltyDiscount: 0,
+  editingPointsRedeemed: 0,
   orderId: null,
   advanceApplied: 0,
 
@@ -112,6 +118,8 @@ export const usePosStore = create<PosState>((set) => ({
     set({
       editingInvoiceId: invoice.id ?? null,
       editingInvoiceNo: invoice.invoiceNo,
+      editingLoyaltyDiscount: invoice.loyaltyDiscount ?? 0,
+      editingPointsRedeemed: invoice.pointsRedeemed ?? 0,
       customerId: invoice.customerId,
       orderId: invoice.orderId ?? null,
       advanceApplied: invoice.advanceApplied ?? 0,
@@ -218,6 +226,8 @@ export const usePosStore = create<PosState>((set) => ({
       loyaltyRedeem: 0,
       editingInvoiceId: null,
       editingInvoiceNo: null,
+      editingLoyaltyDiscount: 0,
+      editingPointsRedeemed: 0,
       orderId: null,
       advanceApplied: 0,
     }),

@@ -71,8 +71,12 @@ export function CheckoutPane({
   )
   const availablePoints = customer?.loyaltyPoints ?? 0
   const cappedRedeem = Math.min(Math.max(0, loyaltyRedeem), availablePoints)
-  // Don't re-award/redeem when editing an existing bill.
-  const loyaltyDiscount = isEdit ? 0 : cappedRedeem * rupeesPerPoint
+  // When editing, preserve the invoice's ORIGINAL loyalty discount so the total
+  // isn't recomputed higher (the points were already redeemed at first save and
+  // are not re-awarded/re-redeemed on edit). New bills use the live redemption.
+  const loyaltyDiscount = isEdit
+    ? store.editingLoyaltyDiscount
+    : cappedRedeem * rupeesPerPoint
 
   const totals = useMemo(
     () =>
@@ -136,7 +140,7 @@ export function CheckoutPane({
         salesman: salesman || undefined,
         loyaltyDiscount: totals.loyaltyDiscount,
         pointsEarned,
-        pointsRedeemed: isEdit ? 0 : cappedRedeem,
+        pointsRedeemed: isEdit ? store.editingPointsRedeemed : cappedRedeem,
         netAmount: totals.netAmount,
         cashPaid,
         upiPaid,
