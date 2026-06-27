@@ -1,6 +1,7 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Pencil } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { useSession } from "@/stores/useSession"
 import { PosTopBar } from "./PosTopBar"
 import { SalesGrid } from "./SalesGrid"
 import { UrdGrid } from "./UrdGrid"
@@ -14,6 +15,18 @@ export function PosPage() {
   const salesCount = usePosStore((s) => s.sales.length)
   const editingInvoiceNo = usePosStore((s) => s.editingInvoiceNo)
   const reset = usePosStore((s) => s.reset)
+  const defaultGstRate = useSession((s) => s.company?.defaultGstRate)
+
+  // Apply the firm's configured GST rate to a fresh, empty bill. The store
+  // captures gstRate at module-load (before login), so this covers the first
+  // session; reset() already re-reads it for subsequent new bills.
+  useEffect(() => {
+    if (defaultGstRate == null) return
+    const s = usePosStore.getState()
+    if (s.sales.length === 0 && s.urd.length === 0 && !s.editingInvoiceId) {
+      s.setGstRate(defaultGstRate)
+    }
+  }, [defaultGstRate])
 
   return (
     <div className="flex h-full min-h-0 flex-col">

@@ -848,10 +848,26 @@ export const schemesService = {
     dueDate?: string,
   ): Promise<SchemePayment> {
     return db.transaction("rw", db.scheme_payments, async () => {
-      const actualInstallmentNo = installmentNo ?? (await db.scheme_payments
+      const existing = await db.scheme_payments
         .where("accountId")
         .equals(accountId)
-        .count() + 1)
+        .toArray()
+      const paidNos = new Set(existing.map((p) => p.installmentNo))
+
+      // Guard against double-pay; when no installment is given, fill the lowest
+      // unpaid slot (handles gaps instead of blindly using count + 1).
+      let actualInstallmentNo: number
+      if (installmentNo != null) {
+        if (paidNos.has(installmentNo)) {
+          throw new Error(`Installment ${installmentNo} is already paid`)
+        }
+        actualInstallmentNo = installmentNo
+      } else {
+        let n = 1
+        while (paidNos.has(n)) n++
+        actualInstallmentNo = n
+      }
+
       const record: SchemePayment = {
         accountId,
         installmentNo: actualInstallmentNo,
@@ -1103,6 +1119,15 @@ export const ledgerService = {
     const invoiceIds = invoices.map((i) => i.id!)
     const salesItems = await db.sales_items.where("invoiceId").anyOf(invoiceIds).toArray()
 
+    // Resolve per-line quantity from the linked stock item (defaults to 1).
+    const lineItemIds = [
+      ...new Set(salesItems.map((s) => s.itemId).filter((x): x is number => x != null)),
+    ]
+    const stockItems = lineItemIds.length
+      ? await db.items.where("id").anyOf(lineItemIds).toArray()
+      : []
+    const qtyById = new Map(stockItems.map((s) => [s.id!, s.quantity ?? 1]))
+
     const summaryMap = new Map<string, {
       hsn: string
       description: string
@@ -1127,7 +1152,7 @@ export const ledgerService = {
         const lineSgst = round(prop * inv.sgst)
         const lineIgst = round(prop * (inv.igst || 0))
         const lineNetWt = item.netWt || 0
-        const lineQty = 1
+        const lineQty = item.itemId != null ? qtyById.get(item.itemId) ?? 1 : 1
 
         const existing = summaryMap.get(hsn)
         if (existing) {

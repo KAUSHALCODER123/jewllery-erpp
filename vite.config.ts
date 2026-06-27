@@ -11,4 +11,10 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    // Routes are code-split (React.lazy); heavy deps like xlsx load on demand.
+    // The entry chunk (~530 kB) is the app shell + React/Radix vendor — fine for
+    // an offline desktop app, so lift the default 500 kB warning threshold.
+    chunkSizeWarningLimit: 700,
+  },
 })

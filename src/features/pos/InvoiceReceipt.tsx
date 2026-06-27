@@ -1,6 +1,7 @@
 import { useMemo } from "react"
 import { useLiveQuery } from "dexie-react-hooks"
 import { X, Printer, MessageCircle } from "lucide-react"
+import { DEFAULT_INVOICE_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import type { SalesInvoice, SalesItem, UrdItem } from "@/db/types"
 import { db } from "@/db/database"
 import { customersService } from "@/services/dbService"
@@ -79,27 +80,20 @@ export function InvoiceReceipt({
             size="sm"
             className="bg-[#25D366] text-white hover:bg-[#1da851]"
             onClick={() => {
-              const defaultTemplate = "*{{companyName}}*\nInvoice {{invoiceNo}} · {{invoiceDate}}\nNet Payable: ₹{{netAmount}}\n{{paymentStatus}}"
-              const template = company?.templateInvoice || defaultTemplate
-
               const statusStr = invoice.balance > 0
                 ? `Balance Due: ₹${formatAmount(invoice.balance)}`
                 : "Paid in full. Thank you!"
-
-              const text = template
-                .replace(/{{companyName}}/g, SHOP.name)
-                .replace(/{{invoiceNo}}/g, invoice.invoiceNo)
-                .replace(/{{invoiceDate}}/g, formatDate(invoice.date))
-                .replace(/{{netAmount}}/g, formatAmount(totals.netAmount))
-                .replace(/{{paymentStatus}}/g, statusStr)
-
-              const digits = (customer?.mobile ?? "").replace(/\D/g, "")
-              const phone = digits.length === 10 ? `91${digits}` : digits
-              window.open(
-                `https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
-                "_blank",
-                "noopener",
+              const text = fillTemplate(
+                company?.templateInvoice || DEFAULT_INVOICE_TEMPLATE,
+                {
+                  companyName: SHOP.name,
+                  invoiceNo: invoice.invoiceNo,
+                  invoiceDate: formatDate(invoice.date),
+                  netAmount: formatAmount(totals.netAmount),
+                  paymentStatus: statusStr,
+                },
               )
+              openWhatsApp(customer?.mobile, text)
             }}
           >
             <MessageCircle className="size-4" /> WhatsApp
@@ -177,6 +171,7 @@ export function InvoiceReceipt({
             >
               <th>#</th>
               <th>Description</th>
+              {!isThermal && <th>HSN</th>}
               {company?.printShowHuid && <th>HUID</th>}
               <th className="text-right">Net Wt</th>
               <th className="text-right">Rate</th>
@@ -192,6 +187,7 @@ export function InvoiceReceipt({
                 <tr key={i} className="border-b border-black/15 [&>td]:py-0.5">
                   <td>{i + 1}</td>
                   <td>{it.description}</td>
+                  {!isThermal && <td>{it.hsn ?? "—"}</td>}
                   {company?.printShowHuid && <td>{huid ?? "—"}</td>}
                   <td className="text-right tabular">{it.netWt.toFixed(3)}</td>
                   <td className="text-right tabular">{formatAmount(it.rate)}</td>

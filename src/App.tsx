@@ -1,26 +1,32 @@
-import { useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useState, type ComponentType } from "react"
 import { BrowserRouter, Route, Routes } from "react-router-dom"
 import { Gem } from "lucide-react"
 import { AppLayout } from "@/components/AppLayout"
-import { Dashboard } from "@/pages/Dashboard"
-import { InventoryPage } from "@/features/items/InventoryPage"
-import { CustomersPage } from "@/features/customers/CustomersPage"
-import { PosPage } from "@/features/pos/PosPage"
-import { GirviPage } from "@/features/girvi/GirviPage"
-import { KarigarPage } from "@/features/karigar/KarigarPage"
-import { OrdersPage } from "@/features/orders/OrdersPage"
-import { DayBookPage } from "@/features/daybook/DayBookPage"
-import { PurchasePage } from "@/features/purchase/PurchasePage"
-import { SchemesPage } from "@/features/schemes/SchemesPage"
-import { ReportsPage } from "@/features/reports/ReportsPage"
-import { ReceiptPage } from "@/features/receipt/ReceiptPage"
-import { StockAuditPage } from "@/features/audit/StockAuditPage"
-import { RefiningPage } from "@/features/refining/RefiningPage"
-import { SettingsPage } from "@/features/settings/SettingsPage"
 import { LoginPage } from "@/features/auth/LoginPage"
 import { authService } from "@/services/authService"
 import { useSession } from "@/stores/useSession"
 import { Toaster } from "@/components/ui/sonner"
+
+// Route pages are code-split so heavy deps (xlsx in Reports, jsbarcode in
+// Item Master/Stock Audit) don't bloat the initial bundle.
+const named = <T,>(p: Promise<Record<string, T>>, key: string) =>
+  p.then((m) => ({ default: m[key] as ComponentType }))
+
+const Dashboard = lazy(() => named(import("@/pages/Dashboard"), "Dashboard"))
+const InventoryPage = lazy(() => named(import("@/features/items/InventoryPage"), "InventoryPage"))
+const CustomersPage = lazy(() => named(import("@/features/customers/CustomersPage"), "CustomersPage"))
+const PosPage = lazy(() => named(import("@/features/pos/PosPage"), "PosPage"))
+const GirviPage = lazy(() => named(import("@/features/girvi/GirviPage"), "GirviPage"))
+const KarigarPage = lazy(() => named(import("@/features/karigar/KarigarPage"), "KarigarPage"))
+const OrdersPage = lazy(() => named(import("@/features/orders/OrdersPage"), "OrdersPage"))
+const DayBookPage = lazy(() => named(import("@/features/daybook/DayBookPage"), "DayBookPage"))
+const PurchasePage = lazy(() => named(import("@/features/purchase/PurchasePage"), "PurchasePage"))
+const SchemesPage = lazy(() => named(import("@/features/schemes/SchemesPage"), "SchemesPage"))
+const ReportsPage = lazy(() => named(import("@/features/reports/ReportsPage"), "ReportsPage"))
+const ReceiptPage = lazy(() => named(import("@/features/receipt/ReceiptPage"), "ReceiptPage"))
+const StockAuditPage = lazy(() => named(import("@/features/audit/StockAuditPage"), "StockAuditPage"))
+const RefiningPage = lazy(() => named(import("@/features/refining/RefiningPage"), "RefiningPage"))
+const SettingsPage = lazy(() => named(import("@/features/settings/SettingsPage"), "SettingsPage"))
 
 function App() {
   const [ready, setReady] = useState(false)
@@ -41,6 +47,13 @@ function App() {
         <LoginPage />
       ) : (
         <BrowserRouter>
+          <Suspense
+            fallback={
+              <div className="flex h-screen w-screen items-center justify-center text-muted-foreground">
+                <Gem className="size-6 animate-pulse text-primary" />
+              </div>
+            }
+          >
           <Routes>
             <Route element={<AppLayout />}>
               <Route index element={<Dashboard />} />
@@ -60,6 +73,7 @@ function App() {
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>
+          </Suspense>
         </BrowserRouter>
       )}
       <Toaster richColors position="bottom-right" />

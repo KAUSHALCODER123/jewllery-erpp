@@ -5,6 +5,7 @@ import * as XLSX from "xlsx"
 import { ledgerService, todayStr } from "@/services/dbService"
 import { formatAmount } from "@/lib/format"
 import { toCsv, downloadText } from "@/lib/csv"
+import { DEFAULT_DUES_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
 import { useSession } from "@/stores/useSession"
@@ -424,19 +425,12 @@ function Debtors() {
   }
 
   const handleWhatsApp = (mobile: string, name: string, outstanding: number) => {
-    const cleanPhone = mobile.trim().replace(/\D/g, "")
-    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
-    
-    const defaultTemplate = "Dear {{customerName}}, this is a gentle reminder that your outstanding balance is ₹{{outstanding}}. Please clear the dues at your earliest convenience. Thank you!"
-    const template = company?.templateDues || defaultTemplate
-
-    const text = template
-      .replace(/{{customerName}}/g, name)
-      .replace(/{{outstanding}}/g, formatAmount(outstanding))
-      .replace(/{{companyName}}/g, company?.name || "")
-
-    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`
-    window.open(url, "_blank")
+    const text = fillTemplate(company?.templateDues || DEFAULT_DUES_TEMPLATE, {
+      customerName: name,
+      outstanding: formatAmount(outstanding),
+      companyName: company?.name || "",
+    })
+    openWhatsApp(mobile, text)
   }
 
   return (

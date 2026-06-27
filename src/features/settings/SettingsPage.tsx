@@ -8,6 +8,12 @@ import { Textarea } from "@/components/ui/textarea"
 import { authService } from "@/services/authService"
 import { maintenanceService, type BackupFile } from "@/services/dbService"
 import {
+  DEFAULT_INVOICE_TEMPLATE,
+  DEFAULT_DUES_TEMPLATE,
+  DEFAULT_GIRVI_TEMPLATE,
+  DEFAULT_SCHEME_TEMPLATE,
+} from "@/lib/waTemplates"
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -1009,11 +1015,6 @@ function Field({
     </div>
   )
 }
-
-const DEFAULT_INVOICE_TEMPLATE = "*{{companyName}}*\nInvoice {{invoiceNo}} · {{invoiceDate}}\nNet Payable: ₹{{netAmount}}\n{{paymentStatus}}"
-const DEFAULT_DUES_TEMPLATE = "Dear {{customerName}}, this is a gentle reminder that your outstanding balance is ₹{{outstanding}}. Please clear the dues at your earliest convenience. Thank you!"
-const DEFAULT_GIRVI_TEMPLATE = "Dear {{customerName}},\nThis is a reminder regarding your gold loan {{loanNo}} dated {{loanDate}}.\nPrincipal: ₹{{loanAmount}}.\nAccumulated Interest: ₹{{interestOutstanding}}.\nTotal Dues: ₹{{totalDues}}.\nKindly clear your interest or close the loan. Thank you!"
-const DEFAULT_SCHEME_TEMPLATE = "Dear {{customerName}},\nYour monthly installment of ₹{{monthlyAmount}} for saving scheme account {{accountNo}} is due on {{dueDate}}.\nKindly pay at your earliest convenience. Thank you!"
 
 function NotificationTemplates() {
   const company = useSession((s) => s.company)

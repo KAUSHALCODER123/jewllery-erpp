@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import type { Scheme, SchemeAccount, SchemePayment, PaymentMode } from "@/db/types"
 import { schemesService, customersService, todayStr } from "@/services/dbService"
 import { formatAmount, formatDate, formatINR } from "@/lib/format"
+import { DEFAULT_SCHEME_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import { ChitReceipt } from "./ChitReceipt"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/stores/useSession"
@@ -635,20 +636,14 @@ function AccountDetailsDialog({
       return
     }
 
-    const defaultTemplate = "Dear {{customerName}},\nYour monthly installment of ₹{{monthlyAmount}} for saving scheme account {{accountNo}} is due on {{dueDate}}.\nKindly pay at your earliest convenience. Thank you!"
-    const template = company?.templateScheme || defaultTemplate
-
-    const text = template
-      .replace(/{{customerName}}/g, customer.name)
-      .replace(/{{monthlyAmount}}/g, formatAmount(scheme.monthlyAmount))
-      .replace(/{{accountNo}}/g, account.accountNo)
-      .replace(/{{dueDate}}/g, formatDate(nextDue.dueDate))
-      .replace(/{{companyName}}/g, company?.name || "")
-
-    const cleanPhone = customer.mobile.trim().replace(/\D/g, "")
-    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
-    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`
-    window.open(url, "_blank")
+    const text = fillTemplate(company?.templateScheme || DEFAULT_SCHEME_TEMPLATE, {
+      customerName: customer.name,
+      monthlyAmount: formatAmount(scheme.monthlyAmount),
+      accountNo: account.accountNo,
+      dueDate: formatDate(nextDue.dueDate),
+      companyName: company?.name || "",
+    })
+    openWhatsApp(customer.mobile, text)
   }
 
   return (

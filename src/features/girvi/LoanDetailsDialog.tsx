@@ -6,6 +6,7 @@ import type { Loan, LoanPayment } from "@/db/types"
 import { loansService, customersService, todayStr } from "@/services/dbService"
 import { formatAmount, formatDate, wt } from "@/lib/format"
 import { computeLoanDues } from "./interest"
+import { DEFAULT_GIRVI_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -31,7 +32,7 @@ import { PavatiReceipt } from "./PavatiReceipt"
 import { PaymentReceipt } from "./PaymentReceipt"
 
 export function LoanDetailsDialog({
-  loan,
+  loan: loanProp,
   open,
   onOpenChange,
 }: {
@@ -40,6 +41,10 @@ export function LoanDetailsDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const company = useSession((s) => s.company)
+  // Live loan so status/badge/buttons update immediately after a payment/closure
+  // (the parent passes a stale list snapshot).
+  const liveLoan = useLiveQuery(() => loansService.get(loanProp.id!), [loanProp.id], undefined)
+  const loan = liveLoan ?? loanProp
   const [payAction, setPayAction] = useState<"part" | "renewal" | "closure" | null>(null)
   const [payDate, setPayDate] = useState(todayStr())
   const [payAmount, setPayAmount] = useState(0)
@@ -69,22 +74,16 @@ export function LoanDetailsDialog({
 
   const sendWhatsAppReminder = () => {
     if (!customer) return
-    const defaultTemplate = "Dear {{customerName}},\nThis is a reminder regarding your gold loan {{loanNo}} dated {{loanDate}}.\nPrincipal: ₹{{loanAmount}}.\nAccumulated Interest: ₹{{interestOutstanding}}.\nTotal Dues: ₹{{totalDues}}.\nKindly clear your interest or close the loan. Thank you!"
-    const template = company?.templateGirvi || defaultTemplate
-
-    const text = template
-      .replace(/{{customerName}}/g, customer.name)
-      .replace(/{{loanNo}}/g, loan.loanNo)
-      .replace(/{{loanDate}}/g, formatDate(loan.date))
-      .replace(/{{loanAmount}}/g, formatAmount(loan.loanAmount))
-      .replace(/{{interestOutstanding}}/g, formatAmount(dues.interestOutstanding))
-      .replace(/{{totalDues}}/g, formatAmount(dues.totalDues))
-      .replace(/{{companyName}}/g, company?.name || "")
-
-    const cleanPhone = customer.mobile.trim().replace(/\D/g, "")
-    const formattedPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone
-    const url = `https://wa.me/${formattedPhone}?text=${encodeURIComponent(text)}`
-    window.open(url, "_blank")
+    const text = fillTemplate(company?.templateGirvi || DEFAULT_GIRVI_TEMPLATE, {
+      customerName: customer.name,
+      loanNo: loan.loanNo,
+      loanDate: formatDate(loan.date),
+      loanAmount: formatAmount(loan.loanAmount),
+      interestOutstanding: formatAmount(dues.interestOutstanding),
+      totalDues: formatAmount(dues.totalDues),
+      companyName: company?.name || "",
+    })
+    openWhatsApp(customer.mobile, text)
   }
 
   // Setup initial values when action changes
