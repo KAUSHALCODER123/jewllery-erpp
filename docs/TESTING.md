@@ -18,7 +18,10 @@ e2e/
   ui/                  Full user flows through the DOM
     app.spec.ts          login gate, wrong-password, navigation across all modules
     customers.spec.ts    create-customer form flow + validation
+    inventory.spec.ts    add a stock item (minted tag, derived net weight)
     pos.spec.ts          billing screen smoke (tabs, checkout, save gating)
+    pos-sale.spec.ts     end-to-end sale: grid → walk-in customer → cash → print
+    girvi.spec.ts        create a gold loan and see it in the open-loans list
 ```
 
 ## Running
