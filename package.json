@@ -16,7 +16,8 @@
     "test:api": "playwright test e2e/api",
     "test:ui": "playwright test e2e/ui",
     "test:headed": "playwright test --headed",
-    "test:report": "playwright show-report"
+    "test:report": "playwright show-report",
+    "test:desktop": "node e2e-desktop/desktop.smoke.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

@@ -50,3 +50,11 @@ tree-shaken out of the production/desktop build — verified: `dist/` contains n
 reference to `__jewel`.
 
 Tests call it via the `api(page, fn)` helper in `e2e/support/helpers.ts`.
+
+## Native desktop smoke (optional)
+
+`e2e-desktop/` drives the **actual built `.exe`** through WebView2 via
+`tauri-driver` + `selenium-webdriver` (`npm run test:desktop`). It runs on an
+unrestricted machine or CI — the primary dev box's WDAC policy blocks
+`cargo install tauri-driver`. See [DESKTOP-E2E.md](./DESKTOP-E2E.md); CI is
+wired in `.github/workflows/desktop-e2e.yml`.

@@ -1,0 +1,48 @@
+name: Desktop E2E (tauri-driver)
+
+# Drives the real built Tauri binary through WebView2 via tauri-driver +
+# selenium-webdriver. Runs on windows-latest, which has no WDAC restriction
+# (unlike the primary dev box, where `cargo install tauri-driver` is blocked).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  desktop-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install JS deps
+        run: |
+          npm ci
+          npm i -D selenium-webdriver
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install tauri-driver
+        run: cargo install tauri-driver --locked
+
+      # windows-latest ships Edge + a matching msedgedriver on PATH, which
+      # tauri-driver uses to talk to WebView2.
+      - name: Build web bundle + desktop binary
+        run: |
+          npm run build
+          cargo build --release --manifest-path src-tauri/Cargo.toml
+
+      - name: Run desktop smoke
+        run: npm run test:desktop
