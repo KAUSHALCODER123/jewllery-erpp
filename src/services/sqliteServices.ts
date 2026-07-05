@@ -9,7 +9,8 @@
  * docs/SQLITE-CUTOVER.md. This is the tested implementation the flip will use.
  */
 
-import type { Customer, Item } from "@/db/types"
+import type { Customer, Item, SalesInvoice, SalesItem, UrdItem } from "@/db/types"
+import type { SaleDraft } from "@/services/dbService"
 import { makeTableRepo, withTransaction, tauriExecutor, type SqlExecutor } from "@/db/sqliteRepo"
 import { decodeRow } from "@/db/sqlBuilder"
 import { typesFor } from "@/db/sqliteSchema"
@@ -48,6 +49,10 @@ export async function nextSequenceRaw(
 export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
   const itemsRepo = makeTableRepo("items", typesFor("items"), exec)
   const customersRepo = makeTableRepo("customers", typesFor("customers"), exec)
+  const salesRepo = makeTableRepo("sales_invoices", typesFor("sales_invoices"), exec)
+  const salesItemsRepo = makeTableRepo("sales_items", typesFor("sales_items"), exec)
+  const urdRepo = makeTableRepo("urd_items", typesFor("urd_items"), exec)
+  const ordersRepo = makeTableRepo("orders", typesFor("orders"), exec)
 
   const nextSequence = (key: string, opts?: { prefix?: string; pad?: number }) =>
     withTransaction(exec, () => nextSequenceRaw(exec, key, opts))
@@ -174,5 +179,70 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
     },
   }
 
-  return { nextSequence, itemsService, customersService }
+  const salesService = {
+    getInvoices: () =>
+      salesRepo.getAll(["id", "DESC"]) as unknown as Promise<SalesInvoice[]>,
+
+    getInvoice: (id: number) =>
+      salesRepo.get(id) as unknown as Promise<SalesInvoice | undefined>,
+
+    getLineItems: (invoiceId: number) =>
+      salesItemsRepo.where({ invoiceId } as never) as unknown as Promise<SalesItem[]>,
+
+    getUrdItems: (invoiceId: number) =>
+      urdRepo.where({ invoiceId } as never) as unknown as Promise<UrdItem[]>,
+
+    /**
+     * Persist a complete sale atomically — the SQLite port of the Dexie
+     * createInvoice. All writes (invoice number, header, item lines, URD lines,
+     * marking sold stock, loyalty delta, order fulfilment) run inside one
+     * transaction so a mid-failure rolls the whole sale back.
+     */
+    async createInvoice(draft: SaleDraft): Promise<SalesInvoice> {
+      return withTransaction(exec, async () => {
+        const { code: invoiceNo } = await nextSequenceRaw(exec, "invoice", { prefix: "INV" })
+        const header: Omit<SalesInvoice, "id"> = {
+          ...draft.invoice,
+          invoiceNo,
+          createdAt: nowIso(),
+        }
+        const created = (await salesRepo.add(header as never)) as { id: number }
+        const invoiceId = created.id
+
+        for (const li of draft.items) {
+          await salesItemsRepo.add({ ...li, invoiceId } as never)
+        }
+        for (const u of draft.urd) {
+          await urdRepo.add({ ...u, invoiceId } as never)
+        }
+
+        // Mark any tagged stock as sold.
+        for (const li of draft.items) {
+          if (li.itemId) await itemsRepo.update(li.itemId, { status: "sold" })
+        }
+
+        // Apply loyalty points (earned − redeemed) to the customer.
+        const delta = (header.pointsEarned ?? 0) - (header.pointsRedeemed ?? 0)
+        if (delta !== 0) {
+          const customer = (await customersRepo.get(header.customerId)) as unknown as
+            | Customer
+            | undefined
+          if (customer) {
+            await customersRepo.update(header.customerId, {
+              loyaltyPoints: Math.max(0, (customer.loyaltyPoints ?? 0) + delta),
+            })
+          }
+        }
+
+        // Fulfil a linked custom order.
+        if (header.orderId) {
+          await ordersRepo.update(header.orderId, { status: "delivered", invoiceId })
+        }
+
+        return { ...header, id: invoiceId } as SalesInvoice
+      })
+    },
+  }
+
+  return { nextSequence, itemsService, customersService, salesService }
 }

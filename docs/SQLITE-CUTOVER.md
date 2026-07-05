@@ -20,7 +20,8 @@ persist to SQLite via `tauri-plugin-sql`. This is the staged migration of
 | **Schema-parity guard** | `e2e/logic/schema-parity.spec.ts` | **done** |
 | **Per-table column-type map** | `src/db/sqliteSchema.ts` | **done** |
 | **SQLite master services** (items, customers) + `nextSequence` | `src/services/sqliteServices.ts` | **done + unit-tested** |
-| SQLite atomic writers + remaining services | `src/services/sqliteServices.ts` | in progress |
+| **Atomic `createInvoice`** (sale in one transaction) | `src/services/sqliteServices.ts` | **done + unit-tested** |
+| Remaining atomic writers + services | `src/services/sqliteServices.ts` | in progress |
 | dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs full set + live validation) |
 
 `sqlBuilder` and `sqliteRepo` are verified in Node (`e2e/logic/`) with a fake
@@ -48,10 +49,12 @@ Flipping blind is the exact risk prior sessions deferred for.
    (`makeSqliteServices(exec)`). Remaining masters (`suppliers`, `karigars`,
    `receipts`, `orders`, `schemes`, `purchases`, `refining`) follow the same
    pattern.
-3. **Atomic writers** using `withTransaction`: `createInvoice`, `updateInvoice`,
-   `addPayment`, `issueJob`/`receiveJob`, `refining.create`, `schemes.addPayment`.
-   Port each Dexie `db.transaction(...)` to a `withTransaction(exec, ...)` block —
-   `nextSequenceRaw(exec, …)` (no self-transaction) is ready to compose inside.
+3. **Atomic writers** using `withTransaction`: `createInvoice` is **done +
+   tested** (the reference pattern — number, header, lines, URD, sold-stock,
+   loyalty, order fulfilment in one transaction, with rollback proven). Remaining:
+   `updateInvoice`, `addPayment`, `issueJob`/`receiveJob`, `refining.create`,
+   `schemes.addPayment` — same `withTransaction(exec, ...)` + `nextSequenceRaw`
+   composition.
 4. **Reports/ledger** (`reportsService`, `ledgerService`): keep the JS aggregation
    but read via repos (`getAll`/`where`) instead of `db.xxx` directly.
 5. **Flip**: `dbService` picks SQLite vs Dexie via `isTauri()` — ALL services at

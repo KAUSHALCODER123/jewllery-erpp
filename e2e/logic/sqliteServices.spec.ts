@@ -118,3 +118,99 @@ test("customersService.getOutstanding = opening + invoice balances − receipts"
   const { customersService } = makeSqliteServices(exec)
   expect(await customersService.getOutstanding(1)).toBe(6000) // 5000 + 3000 - 2000
 })
+
+/* ---- atomic createInvoice ---- */
+
+type Draft = Parameters<ReturnType<typeof makeSqliteServices>["salesService"]["createInvoice"]>[0]
+
+const draft = (over: Partial<Draft["invoice"]> = {}, items: Draft["items"] = [], urd: Draft["urd"] = []): Draft => ({
+  invoice: {
+    customerId: 1, date: "2026-07-05",
+    totalGrossAmount: 65000, totalUrdAmount: 0, taxableAmount: 65000,
+    cgst: 975, sgst: 975, netAmount: 66950, cashPaid: 66950, upiPaid: 0, balance: 0,
+    ...over,
+  } as Draft["invoice"],
+  items,
+  urd,
+})
+
+test("createInvoice runs the whole sale in one transaction (happy path)", async () => {
+  const { exec, calls } = fakeExecutor(
+    [
+      { match: /SELECT value FROM counters/, rows: [{ value: 0 }] },
+      { match: /SELECT \* FROM "customers" WHERE "id"/, rows: [{ id: 1, loyaltyPoints: 5 }] },
+    ],
+    100,
+  )
+  const { salesService } = makeSqliteServices(exec)
+
+  const inv = await salesService.createInvoice(
+    draft(
+      { pointsEarned: 10, pointsRedeemed: 0, orderId: 7 },
+      [{ itemId: 42, description: "Ring", netWt: 10, rate: 6000, makingAmount: 5000, finalAmount: 65000 }],
+      [{ description: "Old gold", type: "gold", purity: "22K", grossWt: 5, deductionWt: 0, netWt: 5, rate: 5000, amount: 25000 }],
+    ),
+  )
+
+  expect(inv.invoiceNo).toBe("INV0001")
+  expect(inv.id).toBe(100)
+
+  const sqls = sqlList(calls)
+  // Ordered, all within BEGIN…COMMIT.
+  expect(sqls[0]).toBe("BEGIN")
+  expect(sqls[sqls.length - 1]).toBe("COMMIT")
+  const idx = (frag: string) => sqls.findIndex((s) => s.includes(frag))
+  expect(idx("SELECT value FROM counters")).toBeGreaterThan(0)
+  expect(idx('INSERT INTO "sales_invoices"')).toBeGreaterThan(idx("ON CONFLICT(key)"))
+  expect(idx('INSERT INTO "sales_items"')).toBeGreaterThan(idx('INSERT INTO "sales_invoices"'))
+  expect(idx('INSERT INTO "urd_items"')).toBeGreaterThan(idx('INSERT INTO "sales_items"'))
+  expect(idx('UPDATE "items"')).toBeGreaterThan(0) // stock marked sold
+  expect(idx('UPDATE "customers"')).toBeGreaterThan(0) // loyalty applied
+  expect(idx('UPDATE "orders"')).toBeGreaterThan(0) // order fulfilled
+
+  // Loyalty delta 10 applied on top of existing 5 → 15.
+  const custUpdate = calls.find((c) => c.sql.startsWith('UPDATE "customers"'))!
+  expect(custUpdate.params).toContain(15)
+  // The order is marked delivered with the new invoice id.
+  const orderUpdate = calls.find((c) => c.sql.startsWith('UPDATE "orders"'))!
+  expect(orderUpdate.params).toContain("delivered")
+  expect(orderUpdate.params).toContain(100)
+})
+
+test("createInvoice rolls back and rethrows if a line insert fails", async () => {
+  const { exec, calls } = fakeExecutor([{ match: /SELECT value FROM counters/, rows: [{ value: 0 }] }], 100)
+  // Make the sales_items insert blow up.
+  const origRun = exec.run
+  exec.run = async (sql, params) => {
+    if (sql.includes('INSERT INTO "sales_items"')) throw new Error("disk full")
+    return origRun(sql, params)
+  }
+  const { salesService } = makeSqliteServices(exec)
+
+  await expect(
+    salesService.createInvoice(
+      draft({}, [{ itemId: 1, description: "Ring", netWt: 10, rate: 6000, makingAmount: 5000, finalAmount: 65000 }]),
+    ),
+  ).rejects.toThrow("disk full")
+
+  const sqls = sqlList(calls)
+  expect(sqls).toContain("ROLLBACK")
+  expect(sqls).not.toContain("COMMIT")
+})
+
+test("createInvoice skips loyalty/order/urd steps when not applicable", async () => {
+  const { exec, calls } = fakeExecutor([{ match: /SELECT value FROM counters/, rows: [{ value: 0 }] }], 100)
+  const { salesService } = makeSqliteServices(exec)
+
+  await salesService.createInvoice(
+    draft({ pointsEarned: 0, pointsRedeemed: 0 }, [
+      { description: "Untagged item", netWt: 2, rate: 6000, makingAmount: 0, finalAmount: 12000 },
+    ]),
+  )
+
+  const sqls = sqlList(calls)
+  expect(sqls.some((s) => s.includes('INSERT INTO "urd_items"'))).toBeFalsy()
+  expect(sqls.some((s) => s.startsWith('UPDATE "customers"'))).toBeFalsy() // no loyalty delta
+  expect(sqls.some((s) => s.startsWith('UPDATE "orders"'))).toBeFalsy() // no order
+  expect(sqls.some((s) => s.startsWith('UPDATE "items"'))).toBeFalsy() // untagged, no itemId
+})
