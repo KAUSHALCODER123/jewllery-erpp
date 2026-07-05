@@ -7,6 +7,7 @@
  */
 
 import Dexie, { type Table } from "dexie"
+import type { ReceiptLang } from "@/lib/receiptI18n"
 
 export type UserRole = "owner" | "manager" | "cashier"
 
@@ -42,6 +43,8 @@ export interface Company {
   printTermsText?: string
   printShowHuid?: boolean
   printAccentColor?: string
+  /** Language for printed receipt labels (invoice/Pavati). Defaults to English. */
+  receiptLanguage?: ReceiptLang
   // Default constants & rates
   defaultGstRate?: number
   defaultHsnCode?: string

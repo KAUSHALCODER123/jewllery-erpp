@@ -6,6 +6,7 @@ import type { SalesInvoice, SalesItem, UrdItem } from "@/db/types"
 import { db } from "@/db/database"
 import { customersService } from "@/services/dbService"
 import { formatAmount, formatDate } from "@/lib/format"
+import { receiptT } from "@/lib/receiptI18n"
 import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import type { PosTotals } from "./calc"
@@ -27,6 +28,7 @@ export function InvoiceReceipt({
 }) {
   const { invoice, items, urd, totals } = payload
   const company = useSession((s) => s.company)
+  const t = receiptT(company?.receiptLanguage)
   const SHOP = {
     name: company?.name ?? "Jewellery Shop",
     address: [company?.address, company?.city].filter(Boolean).join(", "),
@@ -141,16 +143,16 @@ export function InvoiceReceipt({
               className={cn("font-bold", isThermal ? "text-xs" : "text-sm")}
               style={hasAccent ? { color: accentColor } : undefined}
             >
-              TAX INVOICE
+              {t("taxInvoice")}
             </p>
-            <p className="text-[10px] leading-tight">No: {invoice.invoiceNo}</p>
-            <p className="text-[10px] leading-tight">Date: {formatDate(invoice.date)}</p>
+            <p className="text-[10px] leading-tight">{t("no")}: {invoice.invoiceNo}</p>
+            <p className="text-[10px] leading-tight">{t("date")}: {formatDate(invoice.date)}</p>
           </div>
         </div>
 
         {/* Customer */}
         <div className="border-b border-black/30 py-2">
-          <p className="text-[11px] font-semibold">Bill To:</p>
+          <p className="text-[11px] font-semibold">{t("billTo")}</p>
           <p className="font-medium">{customer?.name ?? "—"}</p>
           <p className="text-[11px]">
             {customer?.mobile}
@@ -170,13 +172,13 @@ export function InvoiceReceipt({
               style={hasAccent ? { borderBottomColor: accentColor } : undefined}
             >
               <th>#</th>
-              <th>Description</th>
+              <th>{t("description")}</th>
               {!isThermal && <th>HSN</th>}
               {company?.printShowHuid && <th>HUID</th>}
-              <th className="text-right">Net Wt</th>
-              <th className="text-right">Rate</th>
-              <th className="text-right">Making</th>
-              <th className="text-right">Amount</th>
+              <th className="text-right">{t("netWt")}</th>
+              <th className="text-right">{t("rate")}</th>
+              <th className="text-right">{t("making")}</th>
+              <th className="text-right">{t("amount")}</th>
             </tr>
           </thead>
           <tbody>
@@ -208,10 +210,10 @@ export function InvoiceReceipt({
           <table className="mt-2 w-full border-collapse text-[11px]">
             <thead>
               <tr className="border-b border-black/40 [&>th]:py-1 [&>th]:text-left">
-                <th>Old Gold (URD)</th>
-                <th className="text-right">Net Wt</th>
-                <th className="text-right">Rate</th>
-                <th className="text-right">Less Amount</th>
+                <th>{t("oldGoldUrd")}</th>
+                <th className="text-right">{t("netWt")}</th>
+                <th className="text-right">{t("rate")}</th>
+                <th className="text-right">{t("lessAmount")}</th>
               </tr>
             </thead>
             <tbody>
@@ -235,11 +237,11 @@ export function InvoiceReceipt({
           <div className={cn("space-y-1 rounded border p-2 bg-muted/10 text-[10px]", isThermal ? "w-full" : "w-5/12")}>
             {company?.printBankName ? (
               <>
-                <p className="font-semibold uppercase text-[9px] text-muted-foreground border-b pb-0.5 mb-1" style={hasAccent ? { borderBottomColor: accentColor } : undefined}>Bank Account Details</p>
-                <p><span className="font-medium text-muted-foreground">Bank:</span> {company.printBankName}</p>
-                {company.printBankAccountNo && <p><span className="font-medium text-muted-foreground">A/C No:</span> {company.printBankAccountNo}</p>}
+                <p className="font-semibold uppercase text-[9px] text-muted-foreground border-b pb-0.5 mb-1" style={hasAccent ? { borderBottomColor: accentColor } : undefined}>{t("bankDetails")}</p>
+                <p><span className="font-medium text-muted-foreground">{t("bank")}:</span> {company.printBankName}</p>
+                {company.printBankAccountNo && <p><span className="font-medium text-muted-foreground">{t("acNo")}:</span> {company.printBankAccountNo}</p>}
                 {company.printBankIfsc && <p><span className="font-medium text-muted-foreground">IFSC:</span> {company.printBankIfsc}</p>}
-                {company.printBankBranch && <p><span className="font-medium text-muted-foreground">Branch:</span> {company.printBankBranch}</p>}
+                {company.printBankBranch && <p><span className="font-medium text-muted-foreground">{t("branch")}:</span> {company.printBankBranch}</p>}
               </>
             ) : (
               <div className="text-muted-foreground italic text-[9px]">No bank details on file. Configure under settings.</div>
@@ -248,20 +250,20 @@ export function InvoiceReceipt({
 
           {/* Totals (Right side) */}
           <div className={cn("space-y-0.5", isThermal ? "w-full" : "w-1/2")}>
-            <Line label="Sales Total" value={totals.salesTotal} />
+            <Line label={t("salesTotal")} value={totals.salesTotal} />
             {totals.urdTotal > 0 && (
-              <Line label="Less: Old Gold" value={-totals.urdTotal} />
+              <Line label={t("lessOldGold")} value={-totals.urdTotal} />
             )}
             {totals.billDiscount > 0 && (
-              <Line label="Less: Bill Discount" value={-totals.billDiscount} />
+              <Line label={t("lessBillDiscount")} value={-totals.billDiscount} />
             )}
             {totals.makingDiscount > 0 && (
-              <Line label="Less: Making Discount" value={-totals.makingDiscount} />
+              <Line label={t("lessMakingDiscount")} value={-totals.makingDiscount} />
             )}
             {totals.loyaltyDiscount > 0 && (
-              <Line label="Less: Loyalty Points" value={-totals.loyaltyDiscount} />
+              <Line label={t("lessLoyaltyPoints")} value={-totals.loyaltyDiscount} />
             )}
-            <Line label="Taxable" value={totals.taxable} />
+            <Line label={t("taxable")} value={totals.taxable} />
             {totals.igst > 0 ? (
               <Line label="IGST" value={totals.igst} />
             ) : (
@@ -275,25 +277,23 @@ export function InvoiceReceipt({
               className="mt-1 flex justify-between border-t border-black pt-1 font-bold"
               style={hasAccent ? { borderTopColor: accentColor } : undefined}
             >
-              <span>Net Payable</span>
+              <span>{t("netPayable")}</span>
               <span className="tabular">{formatAmount(totals.netAmount)}</span>
             </div>
             {invoice.advanceApplied && invoice.advanceApplied > 0 ? (
-              <Line label="Less: Advance Adjusted" value={-invoice.advanceApplied} />
+              <Line label={t("lessAdvance")} value={-invoice.advanceApplied} />
             ) : null}
-            <Line label="Cash" value={invoice.cashPaid} />
+            <Line label={t("cash")} value={invoice.cashPaid} />
             <Line label="UPI" value={invoice.upiPaid} />
             <div className="flex justify-between font-semibold border-t border-dashed pt-0.5 mt-0.5">
-              <span>Balance</span>
+              <span>{t("balance")}</span>
               <span className="tabular">{formatAmount(invoice.balance)}</span>
             </div>
           </div>
         </div>
 
         <p className="mt-6 text-center text-[10px] text-black/60 whitespace-pre-line border-t pt-2" style={hasAccent ? { borderTopColor: accentColor } : undefined}>
-          {company?.printTermsText
-            ? company.printTermsText
-            : "Thank you for your business! · Goods once sold are subject to shop terms."}
+          {company?.printTermsText ? company.printTermsText : t("thankYou")}
         </p>
       </div>
     </div>

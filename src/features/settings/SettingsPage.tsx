@@ -4,6 +4,7 @@ import { useRef } from "react"
 import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload, Printer, AlertTriangle, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
 import type { UserRole } from "@/db/systemDb"
+import { RECEIPT_LANGUAGES, type ReceiptLang } from "@/lib/receiptI18n"
 import { Textarea } from "@/components/ui/textarea"
 import { authService } from "@/services/authService"
 import { maintenanceService, type BackupFile } from "@/services/dbService"
@@ -174,6 +175,7 @@ function PrintSettings() {
     printTermsText: "",
     printShowHuid: true,
     printAccentColor: "#000000",
+    receiptLanguage: "en" as ReceiptLang,
     defaultGstRate: 3,
     defaultHsnCode: "7113",
     loyaltyEarnPerGram: 1,
@@ -194,6 +196,7 @@ function PrintSettings() {
         printTermsText: company.printTermsText ?? "",
         printShowHuid: company.printShowHuid ?? true,
         printAccentColor: company.printAccentColor ?? "#000000",
+        receiptLanguage: company.receiptLanguage ?? "en",
         defaultGstRate: company.defaultGstRate ?? 3,
         defaultHsnCode: company.defaultHsnCode ?? "7113",
         loyaltyEarnPerGram: company.loyaltyEarnPerGram ?? 1,
@@ -245,6 +248,7 @@ function PrintSettings() {
       printTermsText: form.printTermsText.trim(),
       printShowHuid: form.printShowHuid,
       printAccentColor: form.printAccentColor,
+      receiptLanguage: form.receiptLanguage,
       defaultGstRate: form.defaultGstRate,
       defaultHsnCode: form.defaultHsnCode.trim(),
       loyaltyEarnPerGram: form.loyaltyEarnPerGram,
@@ -275,6 +279,24 @@ function PrintSettings() {
                 <SelectItem value="A4">A4 (Standard Sheet - 210mm)</SelectItem>
                 <SelectItem value="A5">A5 (Half Sheet - 148mm)</SelectItem>
                 <SelectItem value="80mm">80mm (Thermal Roll)</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label="Receipt Language">
+            <Select
+              value={form.receiptLanguage}
+              onValueChange={(v) => setForm({ ...form, receiptLanguage: v as ReceiptLang })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select receipt language" />
+              </SelectTrigger>
+              <SelectContent>
+                {RECEIPT_LANGUAGES.map((l) => (
+                  <SelectItem key={l.code} value={l.code}>
+                    {l.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </Field>
