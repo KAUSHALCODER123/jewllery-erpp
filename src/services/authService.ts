@@ -25,30 +25,42 @@ export async function hashPassword(password: string, salt: string): Promise<stri
   return toHex(digest)
 }
 
+/**
+ * Memoised so concurrent callers (e.g. React StrictMode double-invoking the
+ * bootstrap effect in dev) share one run — otherwise both see an empty table and
+ * each insert a duplicate default firm + admin.
+ */
+let bootstrapPromise: Promise<void> | null = null
+
+async function runBootstrap(): Promise<void> {
+  const companyCount = await systemDb.companies.count()
+  if (companyCount === 0) {
+    await systemDb.companies.add({
+      name: "My Jewellery Shop",
+      city: "Pune",
+      createdAt: nowIso(),
+    })
+  }
+  const userCount = await systemDb.users.count()
+  if (userCount === 0) {
+    const salt = randomSalt()
+    await systemDb.users.add({
+      username: "admin",
+      name: "Owner",
+      role: "owner",
+      salt,
+      passwordHash: await hashPassword("admin", salt),
+      active: true,
+      createdAt: nowIso(),
+    })
+  }
+}
+
 export const authService = {
   /** First-run bootstrap: ensure a default firm + an owner account exist. */
-  async bootstrap(): Promise<void> {
-    const companyCount = await systemDb.companies.count()
-    if (companyCount === 0) {
-      await systemDb.companies.add({
-        name: "My Jewellery Shop",
-        city: "Pune",
-        createdAt: nowIso(),
-      })
-    }
-    const userCount = await systemDb.users.count()
-    if (userCount === 0) {
-      const salt = randomSalt()
-      await systemDb.users.add({
-        username: "admin",
-        name: "Owner",
-        role: "owner",
-        salt,
-        passwordHash: await hashPassword("admin", salt),
-        active: true,
-        createdAt: nowIso(),
-      })
-    }
+  bootstrap(): Promise<void> {
+    if (!bootstrapPromise) bootstrapPromise = runBootstrap()
+    return bootstrapPromise
   },
 
   listCompanies: (): Promise<Company[]> => systemDb.companies.orderBy("id").toArray(),

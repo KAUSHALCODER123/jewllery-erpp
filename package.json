@@ -10,7 +10,13 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "test": "playwright test",
+    "test:logic": "playwright test e2e/logic",
+    "test:api": "playwright test e2e/api",
+    "test:ui": "playwright test e2e/ui",
+    "test:headed": "playwright test --headed",
+    "test:report": "playwright show-report"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -37,6 +43,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/vite": "^4.3.1",
     "@tauri-apps/cli": "^2.11.3",
     "@types/jsbarcode": "^3.11.4",

@@ -4,6 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import "./index.css"
 import App from "./App.tsx"
 
+// DEV-only test bridge (window.__jewel) for Playwright end-to-end/"API" tests.
+// import.meta.env.DEV is false in production builds, so this whole block —
+// and the imported module — is tree-shaken out of the shipped desktop bundle.
+if (import.meta.env.DEV) {
+  void import("./testBridge").then((m) => m.installTestBridge())
+}
+
 /**
  * React Query handles async server-ish state. For purely local, reactive Dexie
  * reads we lean on `useLiveQuery`; React Query is here for mutations and any
