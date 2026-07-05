@@ -20,8 +20,8 @@ persist to SQLite via `tauri-plugin-sql`. This is the staged migration of
 | **Schema-parity guard** | `e2e/logic/schema-parity.spec.ts` | **done** |
 | **Per-table column-type map** | `src/db/sqliteSchema.ts` | **done** |
 | **SQLite master services** (items, customers) + `nextSequence` | `src/services/sqliteServices.ts` | **done + unit-tested** |
-| **Atomic `createInvoice`** (sale in one transaction) | `src/services/sqliteServices.ts` | **done + unit-tested** |
-| Remaining atomic writers + services | `src/services/sqliteServices.ts` | in progress |
+| **All atomic writers** (createInvoice, updateInvoice, loans.add/addPayment, karigar issue/receive, refining.create, schemes.addPayment, purchase.create) | `src/services/sqliteServices.ts` | **done + unit-tested** |
+| Remaining read/report services + remaining masters | `src/services/sqliteServices.ts` | in progress |
 | dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs full set + live validation) |
 
 `sqlBuilder` and `sqliteRepo` are verified in Node (`e2e/logic/`) with a fake
@@ -49,12 +49,13 @@ Flipping blind is the exact risk prior sessions deferred for.
    (`makeSqliteServices(exec)`). Remaining masters (`suppliers`, `karigars`,
    `receipts`, `orders`, `schemes`, `purchases`, `refining`) follow the same
    pattern.
-3. **Atomic writers** using `withTransaction`: `createInvoice` is **done +
-   tested** (the reference pattern — number, header, lines, URD, sold-stock,
-   loyalty, order fulfilment in one transaction, with rollback proven). Remaining:
-   `updateInvoice`, `addPayment`, `issueJob`/`receiveJob`, `refining.create`,
-   `schemes.addPayment` — same `withTransaction(exec, ...)` + `nextSequenceRaw`
-   composition.
+3. ~~**Atomic writers** using `withTransaction`~~ — **done + tested**:
+   `createInvoice`, `updateInvoice`, `loans.add`/`addPayment` (interest
+   allocation + renewal capitalisation + close-only-when-fully-paid),
+   `karigar.issueJob`/`receiveJob` (metal ledger), `refining.create` (melt +
+   mint bullion via the non-transactional `addItemRaw`, no nested BEGIN),
+   `schemes.addPayment` (dup-slot guard), `purchase.create`. Rollback-on-failure
+   proven for the sale and loan paths.
 4. **Reports/ledger** (`reportsService`, `ledgerService`): keep the JS aggregation
    but read via repos (`getAll`/`where`) instead of `db.xxx` directly.
 5. **Flip**: `dbService` picks SQLite vs Dexie via `isTauri()` — ALL services at
