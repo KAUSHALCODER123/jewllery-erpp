@@ -18,7 +18,10 @@ persist to SQLite via `tauri-plugin-sql`. This is the staged migration of
 | **Pure SQL builder** (insert/update/select/delete + coercion) | `src/db/sqlBuilder.ts` | **done + unit-tested** |
 | **Generic table repository + `withTransaction`** | `src/db/sqliteRepo.ts` | **done + unit-tested** |
 | **Schema-parity guard** | `e2e/logic/schema-parity.spec.ts` | **done** |
-| dbService per-service cutover | `src/services/dbService.ts` | **pending** |
+| **Per-table column-type map** | `src/db/sqliteSchema.ts` | **done** |
+| **SQLite master services** (items, customers) + `nextSequence` | `src/services/sqliteServices.ts` | **done + unit-tested** |
+| SQLite atomic writers + remaining services | `src/services/sqliteServices.ts` | in progress |
+| dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs full set + live validation) |
 
 `sqlBuilder` and `sqliteRepo` are verified in Node (`e2e/logic/`) with a fake
 executor — the SQL generation and transaction control flow are tested without a
@@ -38,23 +41,26 @@ Flipping blind is the exact risk prior sessions deferred for.
 ## Remaining steps (in order)
 
 1. **Confirm the placeholder dialect** the plugin expects for SQLite (`$1` vs
-   `?`). `sqlBuilder` currently emits `$1…$n`; adjust in one place if needed.
-   Verify with a one-line `SELECT $1` round-trip on a real desktop build.
-2. **Cut over the simple, non-atomic services first** via `makeTableRepo`:
-   `counters`/`nextSequence`, `items`, `customers`, `suppliers`, `karigars`,
-   `receipts`. Each `dbService` method gains an `isTauri()` branch delegating to
-   its repo; the Dexie branch stays as the tested reference.
-3. **Cut over the atomic writers** using `withTransaction`: `createInvoice`,
-   `updateInvoice`, `addPayment`, `issueJob`/`receiveJob`, `refining.create`,
-   `schemes.addPayment`. Port each Dexie `db.transaction(...)` to a
-   `withTransaction(exec, ...)` block of repo calls.
-4. **Wire the one-time bridge**: on first Tauri launch, if the SQLite DB is empty
-   and Dexie has data, run `migrateIndexedDbToSqlite()` once (guard with a
-   `localStorage` flag) so existing web users carry their data over.
-5. **Validate on the desktop-e2e CI** (`.github/workflows/desktop-e2e.yml`):
-   extend the smoke to create a sale + loan and assert they persist to SQLite.
-6. **Multi-firm**: the current schema is single-file; mirror the Dexie
-   `dbNameForCompany()` scheme with one `sqlite:jewel_erp_co<id>.db` per firm.
+   `?`). `sqlBuilder`/`sqliteServices` emit `$1…$n`; adjust in one place if
+   needed. Verify with a one-line `SELECT $1` round-trip on a real desktop build.
+2. ~~**Simple, non-atomic services** via `makeTableRepo`~~ — `items`, `customers`
+   and `nextSequence` are **done + tested** in `sqliteServices.ts`
+   (`makeSqliteServices(exec)`). Remaining masters (`suppliers`, `karigars`,
+   `receipts`, `orders`, `schemes`, `purchases`, `refining`) follow the same
+   pattern.
+3. **Atomic writers** using `withTransaction`: `createInvoice`, `updateInvoice`,
+   `addPayment`, `issueJob`/`receiveJob`, `refining.create`, `schemes.addPayment`.
+   Port each Dexie `db.transaction(...)` to a `withTransaction(exec, ...)` block —
+   `nextSequenceRaw(exec, …)` (no self-transaction) is ready to compose inside.
+4. **Reports/ledger** (`reportsService`, `ledgerService`): keep the JS aggregation
+   but read via repos (`getAll`/`where`) instead of `db.xxx` directly.
+5. **Flip**: `dbService` picks SQLite vs Dexie via `isTauri()` — ALL services at
+   once (mixed backends split-brain). Keep Dexie as the tested reference.
+6. **Wire the one-time bridge**: on first Tauri launch, if SQLite is empty and
+   Dexie has data, run `migrateIndexedDbToSqlite()` once (localStorage guard).
+7. **Validate on desktop-e2e CI**: extend the smoke to create a sale + loan and
+   assert they persist to SQLite.
+8. **Multi-firm**: one `sqlite:jewel_erp_co<id>.db` per company.
 
 ## Guardrails
 
