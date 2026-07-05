@@ -369,3 +369,117 @@ test("purchase.create mints a number and inserts header + lines atomically", asy
   expect(sqls.some((s) => s.includes('INSERT INTO "purchase_invoices"'))).toBeTruthy()
   expect(sqls.some((s) => s.includes('INSERT INTO "purchase_items"'))).toBeTruthy()
 })
+
+/* ---- read / report layer ---- */
+
+test("reportsService.getDayBook aggregates the day's invoices", async () => {
+  const { exec } = fakeExecutor([
+    {
+      match: /FROM "sales_invoices"/,
+      rows: [
+        { totalGrossAmount: 65000, totalUrdAmount: 0, cgst: 975, sgst: 975, igst: 0, cashPaid: 66950, upiPaid: 0, balance: 0 },
+        { totalGrossAmount: 20000, totalUrdAmount: 5000, cgst: 300, sgst: 300, igst: 0, cashPaid: 10000, upiPaid: 0, balance: 10600 },
+      ],
+    },
+  ])
+  const { reportsService } = makeSqliteServices(exec)
+  const day = await reportsService.getDayBook("2026-07-05")
+  expect(day.invoiceCount).toBe(2)
+  expect(day.totalSales).toBe(85000)
+  expect(day.totalUrdPurchase).toBe(5000)
+  expect(day.totalTax).toBe(2550) // 975+975+300+300
+  expect(day.cashCollected).toBe(76950)
+  expect(day.outstandingCreated).toBe(10600)
+})
+
+test("ledgerService.customerLedger runs a chronological running balance", async () => {
+  const { exec } = fakeExecutor([
+    { match: /FROM "customers" WHERE "id"/, rows: [{ id: 1, openingBalance: 1000, createdAt: "2026-01-01T00:00:00Z" }] },
+    { match: /FROM "sales_invoices" WHERE customerId/, rows: [{ date: "2026-02-01", invoiceNo: "INV1", netAmount: 5000, cashPaid: 2000, upiPaid: 0 }] },
+    { match: /FROM "receipts" WHERE customerId/, rows: [{ date: "2026-03-01", receiptNo: "RCP1", mode: "cash", amount: 1500 }] },
+  ])
+  const { ledgerService } = makeSqliteServices(exec)
+  const led = await ledgerService.customerLedger(1)
+  expect(led.opening).toBe(1000)
+  // 1000 + 5000 (invoice) - 2000 (paid w/ bill) - 1500 (receipt) = 2500
+  expect(led.closing).toBe(2500)
+  expect(led.rows[0].particulars).toBe("Opening Balance")
+})
+
+test("ledgerService.cashBook sums inflows and outflows for the day", async () => {
+  const { exec } = fakeExecutor([
+    { match: /FROM "sales_invoices"/, rows: [{ invoiceNo: "INV1", cashPaid: 10000, upiPaid: 5000 }] },
+    { match: /FROM "receipts"/, rows: [{ receiptNo: "RCP1", amount: 2000 }] },
+    { match: /FROM "orders"/, rows: [{ orderNo: "ORD1", advanceReceived: 3000 }] },
+    { match: /FROM "loans"/, rows: [{ loanNo: "GRV1", date: "2026-07-05", loanAmount: 50000, isClosed: 0 }] },
+    { match: /FROM "purchase_invoices"/, rows: [{ purchaseNo: "PUR1", amountPaid: 8000 }] },
+  ])
+  const { ledgerService } = makeSqliteServices(exec)
+  const cb = await ledgerService.cashBook("2026-07-05")
+  expect(cb.totalIn).toBe(20000) // 15000 sale + 2000 receipt + 3000 advance
+  expect(cb.totalOut).toBe(58000) // 50000 loan disbursed + 8000 purchase
+  expect(cb.net).toBe(-38000)
+})
+
+test("ledgerService.gstr1 classifies B2B (has GSTIN) vs B2C", async () => {
+  const { exec } = fakeExecutor([
+    {
+      match: /FROM "sales_invoices" WHERE date LIKE/,
+      rows: [
+        { invoiceNo: "INV1", date: "2026-07-02", customerId: 1, taxableAmount: 1000, cgst: 15, sgst: 15, igst: 0, netAmount: 1030 },
+        { invoiceNo: "INV2", date: "2026-07-01", customerId: 2, taxableAmount: 2000, cgst: 30, sgst: 30, igst: 0, netAmount: 2060 },
+      ],
+    },
+    { match: /FROM "customers"/, rows: [
+      { id: 1, name: "GST Co", gstin: "27ABCDE1234F1Z5" },
+      { id: 2, name: "Retail", gstin: "" },
+    ] },
+  ])
+  const { ledgerService } = makeSqliteServices(exec)
+  const rows = await ledgerService.gstr1("2026-07")
+  expect(rows[0].date).toBe("2026-07-01") // sorted
+  const byNo = Object.fromEntries(rows.map((r) => [r.invoiceNo, r.type]))
+  expect(byNo.INV1).toBe("B2B")
+  expect(byNo.INV2).toBe("B2C")
+})
+
+test("schemesService.getSchedule spans the plan and flags paid slots", async () => {
+  const { exec } = fakeExecutor([
+    { match: /FROM "scheme_accounts" WHERE "id"/, rows: [{ id: 1, schemeId: 9, startDate: "2026-01-10" }] },
+    { match: /FROM "schemes" WHERE "id"/, rows: [{ id: 9, durationMonths: 11, monthlyAmount: 5000 }] },
+    { match: /FROM "scheme_payments" WHERE "accountId"/, rows: [{ id: 1, installmentNo: 1, date: "2026-01-10", mode: "cash" }] },
+  ])
+  const { schemesService } = makeSqliteServices(exec)
+  const sched = await schemesService.getSchedule(1)
+  expect(sched).toHaveLength(11)
+  expect(sched[0].paid).toBe(true)
+  expect(sched[1].paid).toBe(false)
+  expect(sched[1].dueDate).toBe("2026-02-10")
+})
+
+test("suppliersService.getOutstanding = opening + unpaid purchase balances", async () => {
+  const { exec } = fakeExecutor([
+    { match: /FROM "suppliers" WHERE "id"/, rows: [{ id: 1, openingBalance: 2000 }] },
+    { match: /FROM purchase_invoices WHERE supplierId/, rows: [{ s: 7000 }] },
+  ])
+  const { suppliersService } = makeSqliteServices(exec)
+  expect(await suppliersService.getOutstanding(1)).toBe(9000)
+})
+
+test("ordersService.getOpen filters out delivered/cancelled", async () => {
+  const { exec, calls } = fakeExecutor([{ match: /FROM "orders"/, rows: [] }])
+  const { ordersService } = makeSqliteServices(exec)
+  await ordersService.getOpen()
+  expect(calls[0].sql).toContain("status NOT IN ('delivered','cancelled')")
+})
+
+test("receiptsService.add mints RCP number transactionally", async () => {
+  const { exec, calls } = fakeExecutor([{ match: /SELECT value FROM counters/, rows: [{ value: 0 }] }], 4)
+  const { receiptsService } = makeSqliteServices(exec)
+  const r = await receiptsService.add({ customerId: 1, date: "2026-07-05", amount: 500, mode: "cash" } as never)
+  expect(r.receiptNo).toBe("RCP0001")
+  expect(r.id).toBe(4)
+  const sqls = sqlList(calls)
+  expect(sqls[0]).toBe("BEGIN")
+  expect(sqls[sqls.length - 1]).toBe("COMMIT")
+})
