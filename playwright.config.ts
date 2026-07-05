@@ -15,7 +15,9 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  // Cap local workers: all tests share one Vite dev server + one IndexedDB
+  // origin, so too much concurrency causes load-timeout flakiness.
+  workers: process.env.CI ? 2 : 4,
   reporter: [["list"], ["html", { open: "never" }]],
   timeout: 30_000,
   expect: { timeout: 10_000 },

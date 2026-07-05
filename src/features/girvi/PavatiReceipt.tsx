@@ -3,6 +3,7 @@ import { X, Printer } from "lucide-react"
 import type { Loan } from "@/db/types"
 import { customersService } from "@/services/dbService"
 import { formatAmount, formatDate, wt } from "@/lib/format"
+import { receiptT } from "@/lib/receiptI18n"
 import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -16,6 +17,7 @@ export function PavatiReceipt({
   onClose: () => void
 }) {
   const company = useSession((s) => s.company)
+  const t = receiptT(company?.receiptLanguage)
   const SHOP = {
     name: company?.name ?? "Jewellery Shop",
     address: [company?.address, company?.city].filter(Boolean).join(", "),
@@ -84,16 +86,16 @@ export function PavatiReceipt({
               className={cn("font-bold", isThermal ? "text-xs" : "text-sm")}
               style={hasAccent ? { color: accentColor } : undefined}
             >
-              GIRVI PAVATI
+              {t("girviPavati")}
             </p>
-            <p className="text-[10px] leading-tight">No: {loan.loanNo}</p>
-            <p className="text-[10px] leading-tight">Date: {formatDate(loan.date)}</p>
+            <p className="text-[10px] leading-tight">{t("no")}: {loan.loanNo}</p>
+            <p className="text-[10px] leading-tight">{t("date")}: {formatDate(loan.date)}</p>
           </div>
         </div>
 
         <div className="flex justify-between gap-4 border-b border-black/30 py-2">
           <div>
-            <p className="text-[11px] font-semibold">Borrower:</p>
+            <p className="text-[11px] font-semibold">{t("borrower")}</p>
             <p className="font-medium">{customer?.name ?? "—"}</p>
             <p className="text-[11px]">
               {customer?.mobile}
@@ -116,11 +118,11 @@ export function PavatiReceipt({
               style={hasAccent ? { borderBottomColor: accentColor } : undefined}
             >
               <th>#</th>
-              <th>Pledged Item</th>
-              <th>Purity</th>
-              <th className="text-right">Gross</th>
-              <th className="text-right">Net</th>
-              <th className="text-right">Est. Value</th>
+              <th>{t("pledgedItem")}</th>
+              <th>{t("purity")}</th>
+              <th className="text-right">{t("gross")}</th>
+              <th className="text-right">{t("net")}</th>
+              <th className="text-right">{t("estValue")}</th>
             </tr>
           </thead>
           <tbody>
@@ -141,15 +143,15 @@ export function PavatiReceipt({
 
         <div className="mt-3 ml-auto w-1/2 space-y-0.5 text-[11px]">
           <div className="flex justify-between font-bold">
-            <span>Loan Amount</span>
+            <span>{t("loanAmount")}</span>
             <span className="tabular">{formatAmount(loan.loanAmount)}</span>
           </div>
           <div className="flex justify-between">
-            <span>Interest Rate</span>
-            <span className="tabular">{loan.interestRate}% / month</span>
+            <span>{t("interestRate")}</span>
+            <span className="tabular">{loan.interestRate}% {t("perMonth")}</span>
           </div>
           <div className="flex justify-between">
-            <span>Total Net Wt</span>
+            <span>{t("totalNetWt")}</span>
             <span className="tabular">{wt(loan.netWt)} g</span>
           </div>
         </div>
@@ -158,14 +160,12 @@ export function PavatiReceipt({
           className="mt-4 text-[10px] text-black/60 border-t pt-2"
           style={hasAccent ? { borderTopColor: accentColor } : undefined}
         >
-          The above goods are pledged as security for the loan. Interest accrues
-          monthly. Goods will be returned on full repayment of principal plus
-          interest. Subject to shop terms &amp; statutory pawn-broking rules.
+          {t("pledgeTerms")}
           {company?.printTermsText ? ` · ${company.printTermsText}` : ""}
         </p>
         <div className="mt-6 flex justify-between text-[11px]">
-          <span>Borrower Signature</span>
-          <span>For {SHOP.name}</span>
+          <span>{t("borrowerSignature")}</span>
+          <span>{t("forShop")} {SHOP.name}</span>
         </div>
       </div>
     </div>

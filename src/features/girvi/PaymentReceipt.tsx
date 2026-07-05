@@ -3,6 +3,7 @@ import { X, Printer } from "lucide-react"
 import type { Loan, LoanPayment } from "@/db/types"
 import { customersService } from "@/services/dbService"
 import { formatAmount, formatDate } from "@/lib/format"
+import { receiptT } from "@/lib/receiptI18n"
 import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -17,6 +18,7 @@ export function PaymentReceipt({
   onClose: () => void
 }) {
   const company = useSession((s) => s.company)
+  const t = receiptT(company?.receiptLanguage)
   const SHOP = {
     name: company?.name ?? "Jewellery Shop",
     address: [company?.address, company?.city].filter(Boolean).join(", "),
@@ -38,10 +40,10 @@ export function PaymentReceipt({
   const accentColor = company?.printAccentColor || "#000000"
   const hasAccent = !!company?.printAccentColor && company.printAccentColor !== "#000000"
 
-  const paymentTitle = 
-    payment.type === "part" ? "PART REPAYMENT RECEIPT" :
-    payment.type === "renewal" ? "LOAN RENEWAL VOUCHER" :
-    "LOAN CLOSURE RECEIPT"
+  const paymentTitle =
+    payment.type === "part" ? t("partRepaymentReceipt") :
+    payment.type === "renewal" ? t("loanRenewalVoucher") :
+    t("loanClosureReceipt")
 
   return (
     <div className="print-overlay fixed inset-0 z-[60] flex flex-col items-center overflow-auto bg-black/40 p-6">
@@ -92,14 +94,14 @@ export function PaymentReceipt({
             >
               {paymentTitle}
             </p>
-            <p className="text-[10px] leading-tight">Receipt No: PAY-{payment.id || "TEMP"}</p>
-            <p className="text-[10px] leading-tight">Date: {formatDate(payment.date)}</p>
+            <p className="text-[10px] leading-tight">{t("receiptNo")}: PAY-{payment.id || "TEMP"}</p>
+            <p className="text-[10px] leading-tight">{t("date")}: {formatDate(payment.date)}</p>
           </div>
         </div>
 
         <div className="flex justify-between gap-4 border-b border-black/30 py-2">
           <div>
-            <p className="text-[11px] font-semibold">Borrower:</p>
+            <p className="text-[11px] font-semibold">{t("borrower")}</p>
             <p className="font-medium">{customer?.name ?? "—"}</p>
             <p className="text-[11px]">
               {customer?.mobile}
@@ -107,9 +109,9 @@ export function PaymentReceipt({
             </p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-right">Loan Details:</p>
-            <p className="font-medium text-right">No: {loan.loanNo}</p>
-            <p className="text-[11px] text-right">Date: {formatDate(loan.date)}</p>
+            <p className="text-[11px] font-semibold text-right">{t("loanDetails")}</p>
+            <p className="font-medium text-right">{t("no")}: {loan.loanNo}</p>
+            <p className="text-[11px] text-right">{t("date")}: {formatDate(loan.date)}</p>
           </div>
         </div>
 
@@ -119,21 +121,21 @@ export function PaymentReceipt({
               className="border-b border-black [&>th]:py-1 [&>th]:text-left"
               style={hasAccent ? { borderBottomColor: accentColor } : undefined}
             >
-              <th>Particulars</th>
-              <th className="text-right">Amount</th>
+              <th>{t("particulars")}</th>
+              <th className="text-right">{t("amount")}</th>
             </tr>
           </thead>
           <tbody>
             <tr className="border-b border-black/15 [&>td]:py-1">
-              <td>Amount Received</td>
+              <td>{t("amountReceived")}</td>
               <td className="text-right font-bold tabular">{formatAmount(payment.amount)}</td>
             </tr>
             <tr className="border-b border-black/15 [&>td]:py-1">
-              <td>Adjusted Towards Interest Accrued</td>
+              <td>{t("towardsInterest")}</td>
               <td className="text-right tabular">{formatAmount(payment.towardsInterest)}</td>
             </tr>
             <tr className="border-b border-black/15 [&>td]:py-1">
-              <td>Adjusted Towards Principal</td>
+              <td>{t("towardsPrincipal")}</td>
               <td className="text-right tabular">{formatAmount(payment.towardsPrincipal)}</td>
             </tr>
           </tbody>
@@ -141,7 +143,7 @@ export function PaymentReceipt({
 
         {payment.notes && (
           <div className="mt-3 text-[11px]">
-            <span className="font-semibold">Notes:</span> {payment.notes}
+            <span className="font-semibold">{t("notes")}</span> {payment.notes}
           </div>
         )}
 
@@ -149,14 +151,13 @@ export function PaymentReceipt({
           className="mt-4 text-[10px] text-black/60 border-t pt-2"
           style={hasAccent ? { borderTopColor: accentColor } : undefined}
         >
-          This is a transaction receipt for the payment received against gold loan {loan.loanNo}.
-          Interest balances are updated chronologically. Keep this voucher safe for future reference.
+          {t("paymentTerms")}
           {company?.printTermsText ? ` · ${company.printTermsText}` : ""}
         </div>
 
         <div className="mt-8 flex justify-between text-[11px]">
-          <span>Borrower Signature</span>
-          <span>For {SHOP.name}</span>
+          <span>{t("borrowerSignature")}</span>
+          <span>{t("forShop")} {SHOP.name}</span>
         </div>
       </div>
     </div>
