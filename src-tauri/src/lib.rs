@@ -4,7 +4,10 @@
 //! the system WebView (WebView2 on Windows). Persistence is provided by
 //! `tauri-plugin-sql` (SQLite), exposed to the frontend through the JS
 //! `@tauri-apps/plugin-sql` API (see `src/db/sqlite.ts`). The full schema is
-//! applied as a migration the first time the database is opened.
+//! applied as a migration the first time the default `jewel_erp.db` is opened.
+//! Multi-firm uses one DB file per company (`jewel_erp_co<id>.db`); those files
+//! are not registered here, so the frontend applies the same schema to them on
+//! open (idempotent CREATE IF NOT EXISTS — see src/db/sqliteMigrate.ts).
 
 use tauri_plugin_sql::{Builder as SqlBuilder, Migration, MigrationKind};
 

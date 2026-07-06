@@ -26,7 +26,7 @@ persist to SQLite via `tauri-plugin-sql`. This is the staged migration of
 | **First-run migration trigger** (Dexie→SQLite, localStorage-guarded) | `src/App.tsx` | **wired** |
 | **Named per-service exports dispatch** (a flag flip now routes the whole app) | `src/services/dbService.ts` | **done** |
 | **Seam bypasses removed** — `GirviPage` + `InvoiceReceipt` now use `loans.getAllPayments`/`getPayments` + `items.getByIds` (no component imports raw `db`) | components | **done** |
-| Multi-firm one-DB-per-company | `src/db/sqlite.ts` | pending |
+| **Multi-firm one-DB-per-company** — `getSqlite()` opens `dbFileForCompany(activeCompanyId())` and schema-inits per file | `src/db/sqlite.ts`, `src/db/sqliteMigrate.ts` | **done** |
 | `useLiveQuery` reactivity under SQLite (Dexie-only observable) | app-wide | pending (SQLite runtime concern) |
 | **Live desktop validation** (`$1` vs `?`, real sale/loan) | desktop-e2e CI | **the gate** |
 | dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs full set + live validation) |
@@ -93,8 +93,14 @@ Flipping blind is the exact risk prior sessions deferred for.
 8. **Validate on desktop-e2e CI**: flip the flag, build the desktop app, extend
    the smoke to create a sale + loan and assert they persist to SQLite. Confirm
    the `$1`/`?` placeholder dialect here.
-9. **Multi-firm**: one `sqlite:jewel_erp_co<id>.db` per company (sqlite.ts loads a
-   fixed filename today).
+9. ~~**Multi-firm**: one `sqlite:jewel_erp_co<id>.db` per company~~ — **done**:
+   `getSqlite()` resolves `dbFileForCompany(activeCompanyId())` (firm 1 =
+   `jewel_erp.db`, others `jewel_erp_co<id>.db` — mirrors `dbNameForCompany`),
+   caches a handle per firm, and applies the schema on first open via
+   `ensureSchema` (dynamic `?raw` import of 0001_init.sql, split into statements).
+   The Rust migration still covers `jewel_erp.db`; per-firm files are schema-init'd
+   from JS (idempotent). NOTE: `migrateIndexedDbToSqlite()` currently copies only
+   the ACTIVE firm's data — a full all-firms migration is a follow-up.
 
 ## Guardrails
 

@@ -27,25 +27,49 @@ export const isTauri = (): boolean =>
   typeof window !== "undefined" &&
   ("__TAURI_INTERNALS__" in window || "__TAURI__" in window)
 
-let _dbPromise: Promise<SqlDatabase> | null = null
+// Mirrors dbNameForCompany() in database.ts so each firm's SQLite file lines up
+// with its Dexie database: firm 1 = "jewel_erp", others = "jewel_erp_co<id>".
+const ACTIVE_COMPANY_KEY = "jewel.activeCompanyId"
+const activeCompanyId = (): number => {
+  if (typeof localStorage === "undefined") return 1
+  return Number(localStorage.getItem(ACTIVE_COMPANY_KEY) || "1") || 1
+}
+
+/** SQLite file name for a firm, e.g. "jewel_erp.db" / "jewel_erp_co2.db". */
+export const dbFileForCompany = (id: number): string =>
+  id === 1 ? "jewel_erp.db" : `jewel_erp_co${id}.db`
+
+// One cached handle per firm — switching firms opens (and schema-inits) its own
+// file. Keyed by company id so a mid-session switch binds to the right DB.
+const _dbByCompany = new Map<number, Promise<SqlDatabase>>()
 
 /**
- * Load (once) and return the SQLite handle. Throws if called outside Tauri so
- * callers must guard with `isTauri()` first.
+ * Load (once per firm) and return the SQLite handle for the active company.
+ * Applies the schema on first open (idempotent) so per-firm DB files — which the
+ * Rust migration doesn't register — are created correctly. Throws outside Tauri.
  */
 export async function getSqlite(): Promise<SqlDatabase> {
   if (!isTauri()) {
     throw new Error("getSqlite() called outside the Tauri desktop runtime")
   }
-  if (!_dbPromise) {
-    _dbPromise = (async () => {
-      // Dynamic import keeps the plugin out of the web bundle.
+  const companyId = activeCompanyId()
+  let promise = _dbByCompany.get(companyId)
+  if (!promise) {
+    promise = (async () => {
+      // Dynamic imports keep the plugin + the ?raw schema out of the web bundle
+      // (and out of the Node test transform).
       const mod = await import("@tauri-apps/plugin-sql")
       const Database = mod.default
-      return (await Database.load("sqlite:jewel_erp.db")) as unknown as SqlDatabase
+      const db = (await Database.load(
+        `sqlite:${dbFileForCompany(companyId)}`,
+      )) as unknown as SqlDatabase
+      const { ensureSchema } = await import("./sqliteMigrate")
+      await ensureSchema(db)
+      return db
     })()
+    _dbByCompany.set(companyId, promise)
   }
-  return _dbPromise
+  return promise
 }
 
 /** Run a write (INSERT/UPDATE/DELETE/DDL). Returns rows affected + last id. */
