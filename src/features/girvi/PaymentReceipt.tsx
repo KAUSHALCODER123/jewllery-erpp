@@ -1,4 +1,4 @@
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { X, Printer } from "lucide-react"
 import type { Loan, LoanPayment } from "@/db/types"
 import { customersService } from "@/services/dbService"
@@ -24,7 +24,7 @@ export function PaymentReceipt({
     address: [company?.address, company?.city].filter(Boolean).join(", "),
     phone: company?.phone ?? "",
   }
-  const customer = useLiveQuery(
+  const customer = useLiveData(
     () => customersService.get(loan.customerId),
     [loan.customerId],
     undefined,

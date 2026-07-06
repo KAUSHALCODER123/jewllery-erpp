@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Flame } from "lucide-react"
 import { toast } from "sonner"
 import type { MetalType } from "@/db/types"
@@ -37,8 +37,8 @@ function purityToFinePct(purity: string): number {
 }
 
 export function RefiningPage() {
-  const inStock = useLiveQuery(() => itemsService.getInStock(), [], [])
-  const history = useLiveQuery(() => refiningService.getAll(), [], [])
+  const inStock = useLiveData(() => itemsService.getInStock(), [], [])
+  const history = useLiveData(() => refiningService.getAll(), [], [])
 
   const [date, setDate] = useState(todayStr())
   const [refinerName, setRefinerName] = useState("")

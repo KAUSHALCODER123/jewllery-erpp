@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import {
   ScanLine,
   CheckCircle2,
@@ -32,7 +32,7 @@ import {
  * Read-only — it reports discrepancies without mutating inventory.
  */
 export function StockAuditPage() {
-  const allItems = useLiveQuery(() => itemsService.getAll(), [], undefined)
+  const allItems = useLiveData(() => itemsService.getAll(), [], undefined)
   const [scanned, setScanned] = useState<Set<string>>(new Set())
   const [unknown, setUnknown] = useState<string[]>([])
   const [reconciled, setReconciled] = useState(false)

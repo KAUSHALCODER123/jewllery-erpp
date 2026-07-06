@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Plus, Truck, Pencil, UserPlus } from "lucide-react"
 import type { Supplier } from "@/db/types"
 import { purchaseService, suppliersService } from "@/services/dbService"
@@ -25,8 +25,8 @@ export function PurchasePage() {
   const [supplierOpen, setSupplierOpen] = useState(false)
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null)
 
-  const purchases = useLiveQuery(() => purchaseService.getInvoices(), [], [])
-  const suppliers = useLiveQuery(() => suppliersService.getAll(), [], [])
+  const purchases = useLiveData(() => purchaseService.getInvoices(), [], [])
+  const suppliers = useLiveData(() => suppliersService.getAll(), [], [])
   const supName = useMemo(() => {
     const m = new Map<number, string>()
     for (const s of suppliers) m.set(s.id!, s.name)

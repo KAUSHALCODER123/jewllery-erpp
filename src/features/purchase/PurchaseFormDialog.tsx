@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Plus, Trash2, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 import type { MetalType } from "@/db/types"
@@ -75,7 +75,7 @@ export function PurchaseFormDialog({
   open: boolean
   onOpenChange: (o: boolean) => void
 }) {
-  const suppliers = useLiveQuery(() => suppliersService.getAll(), [], [])
+  const suppliers = useLiveData(() => suppliersService.getAll(), [], [])
   const [supplierId, setSupplierId] = useState("")
   const [billNo, setBillNo] = useState("")
   const [date, setDate] = useState(todayStr())

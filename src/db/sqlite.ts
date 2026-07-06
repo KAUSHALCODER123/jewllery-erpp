@@ -15,6 +15,8 @@
  * cutover from Dexie to these helpers is staged.
  */
 
+import { bumpDataVersion } from "./dataVersion"
+
 // Minimal shape of the @tauri-apps/plugin-sql Database we rely on.
 interface SqlDatabase {
   execute(query: string, bindValues?: unknown[]): Promise<{ rowsAffected: number; lastInsertId?: number }>
@@ -72,13 +74,18 @@ export async function getSqlite(): Promise<SqlDatabase> {
   return promise
 }
 
+/** True for row-mutating statements — those that should notify live queries. */
+const isMutation = (sql: string): boolean => /^\s*(INSERT|UPDATE|DELETE)/i.test(sql)
+
 /** Run a write (INSERT/UPDATE/DELETE/DDL). Returns rows affected + last id. */
 export async function run(
   sql: string,
   params: unknown[] = [],
 ): Promise<{ rowsAffected: number; lastInsertId?: number }> {
   const db = await getSqlite()
-  return db.execute(sql, params)
+  const res = await db.execute(sql, params)
+  if (isMutation(sql)) bumpDataVersion()
+  return res
 }
 
 /** Run a read query and get typed rows. */
@@ -125,6 +132,10 @@ export async function getSystemSqlite(): Promise<SqlDatabase> {
 
 /** An executor bound to the shared system DB (for auth + company reads). */
 export const systemExecutor = {
-  run: async (sql: string, params: unknown[] = []) => (await getSystemSqlite()).execute(sql, params),
+  run: async (sql: string, params: unknown[] = []) => {
+    const res = await (await getSystemSqlite()).execute(sql, params)
+    if (isMutation(sql)) bumpDataVersion()
+    return res
+  },
   query: async <T>(sql: string, params: unknown[] = []) => (await getSystemSqlite()).select<T[]>(sql, params),
 }

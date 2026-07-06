@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { X, Printer, Plus, RotateCw, Lock, Fingerprint, ImageOff, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 import type { Loan, LoanPayment } from "@/db/types"
@@ -43,7 +43,7 @@ export function LoanDetailsDialog({
   const company = useSession((s) => s.company)
   // Live loan so status/badge/buttons update immediately after a payment/closure
   // (the parent passes a stale list snapshot).
-  const liveLoan = useLiveQuery(() => loansService.get(loanProp.id!), [loanProp.id], undefined)
+  const liveLoan = useLiveData(() => loansService.get(loanProp.id!), [loanProp.id], undefined)
   const loan = liveLoan ?? loanProp
   const [payAction, setPayAction] = useState<"part" | "renewal" | "closure" | null>(null)
   const [payDate, setPayDate] = useState(todayStr())
@@ -55,13 +55,13 @@ export function LoanDetailsDialog({
   const [printPayment, setPrintPayment] = useState<{ loan: Loan; payment: LoanPayment } | null>(null)
 
   // Fetch payments reactively
-  const payments = useLiveQuery(
+  const payments = useLiveData(
     () => loansService.getPayments(loan.id!),
     [loan.id],
     []
   )
 
-  const customer = useLiveQuery(
+  const customer = useLiveData(
     () => customersService.get(loan.customerId),
     [loan.customerId],
     undefined

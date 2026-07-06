@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Plus, ClipboardList } from "lucide-react"
 import { toast } from "sonner"
 import type { OrderStatus } from "@/db/types"
@@ -47,8 +47,8 @@ export function OrdersPage() {
   const [formOpen, setFormOpen] = useState(false)
   const navigate = useNavigate()
   const posStore = usePosStore()
-  const orders = useLiveQuery(() => ordersService.getAll(), [], undefined)
-  const customers = useLiveQuery(() => customersService.getAll(), [], [])
+  const orders = useLiveData(() => ordersService.getAll(), [], undefined)
+  const customers = useLiveData(() => customersService.getAll(), [], [])
   const custName = useMemo(() => {
     const m = new Map<number, string>()
     for (const c of customers) m.set(c.id!, c.name)

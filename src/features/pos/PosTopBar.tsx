@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Check, ChevronsUpDown, UserPlus, User, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { customersService } from "@/services/dbService"
@@ -41,7 +41,7 @@ export function PosTopBar() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [])
 
-  const customers = useLiveQuery(() => customersService.getAll(), [], [])
+  const customers = useLiveData(() => customersService.getAll(), [], [])
   const selected = customers.find((c) => c.id === customerId) ?? null
 
   // Walk-in: create a minimal customer from the typed name and select it.
@@ -61,7 +61,7 @@ export function PosTopBar() {
   }
 
   // Live outstanding (Udhari) for the selected customer.
-  const outstanding = useLiveQuery(
+  const outstanding = useLiveData(
     () => (customerId ? customersService.getOutstanding(customerId) : Promise.resolve(0)),
     [customerId],
     0,

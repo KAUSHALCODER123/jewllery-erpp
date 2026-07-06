@@ -1,4 +1,4 @@
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { X, Printer } from "lucide-react"
 import type { Scheme, SchemeAccount, SchemePayment } from "@/db/types"
 import { customersService, addMonths } from "@/services/dbService"
@@ -35,7 +35,7 @@ export function ChitReceipt({
   const accentColor = company?.printAccentColor || "#000000"
   const hasAccent = !!company?.printAccentColor && company.printAccentColor !== "#000000"
 
-  const customer = useLiveQuery(
+  const customer = useLiveData(
     () => customersService.get(account.customerId),
     [account.customerId],
     undefined,

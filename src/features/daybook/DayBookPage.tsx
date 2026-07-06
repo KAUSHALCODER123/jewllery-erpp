@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { useNavigate } from "react-router-dom"
 import { toast } from "sonner"
 import {
@@ -57,18 +57,18 @@ export function DayBookPage() {
     navigate("/billing")
   }
 
-  const summary = useLiveQuery(
+  const summary = useLiveData(
     () => reportsService.getDayBook(date),
     [date],
     undefined,
   )
-  const invoices = useLiveQuery(
+  const invoices = useLiveData(
     () => salesService.getInvoicesByDate(date),
     [date],
     [],
   )
-  const customers = useLiveQuery(() => customersService.getAll(), [], [])
-  const loans = useLiveQuery(() => loansService.getAll(), [], [])
+  const customers = useLiveData(() => customersService.getAll(), [], [])
+  const loans = useLiveData(() => loansService.getAll(), [], [])
 
   const custName = useMemo(() => {
     const m = new Map<number, string>()

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Printer, Save, RotateCcw, Star } from "lucide-react"
 import { toast } from "sonner"
 import type { SaleDraft } from "@/services/dbService"
@@ -64,7 +64,7 @@ export function CheckoutPane({
   const isEdit = !!store.editingInvoiceId
 
   // Selected customer's loyalty balance (for redemption + display).
-  const customer = useLiveQuery(
+  const customer = useLiveData(
     () => (customerId ? customersService.get(customerId) : Promise.resolve(undefined)),
     [customerId],
     undefined,

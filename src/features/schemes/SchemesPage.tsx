@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Plus, PiggyBank, IndianRupee, CheckCircle2, Eye, Printer, MessageCircle } from "lucide-react"
 import { toast } from "sonner"
 import type { Scheme, SchemeAccount, SchemePayment, PaymentMode } from "@/db/types"
@@ -50,9 +50,9 @@ export function SchemesPage() {
   const [printPayment, setPrintPayment] = useState<SchemePayment | null>(null)
   const [printAccount, setPrintAccount] = useState<SchemeAccount | null>(null)
 
-  const schemes = useLiveQuery(() => schemesService.getSchemes(), [], [])
-  const customers = useLiveQuery(() => customersService.getAll(), [], [])
-  const accounts = useLiveQuery(async () => {
+  const schemes = useLiveData(() => schemesService.getSchemes(), [], [])
+  const customers = useLiveData(() => customersService.getAll(), [], [])
+  const accounts = useLiveData(async () => {
     const accs = await schemesService.getAccounts()
     return Promise.all(
       accs.map(async (a) => {
@@ -595,18 +595,18 @@ function AccountDetailsDialog({
 }) {
   const company = useSession((s) => s.company)
 
-  const customer = useLiveQuery(
+  const customer = useLiveData(
     () => customersService.get(account.customerId),
     [account.customerId]
   )
 
-  const schedule = useLiveQuery(
+  const schedule = useLiveData(
     () => schemesService.getSchedule(account.id!),
     [account.id],
     [],
   )
 
-  const payments = useLiveQuery(
+  const payments = useLiveData(
     () => schemesService.getPayments(account.id!),
     [account.id],
     [],

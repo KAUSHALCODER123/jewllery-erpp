@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { HandCoins, Printer, X } from "lucide-react"
 import { toast } from "sonner"
 import type { PaymentMode, Receipt } from "@/db/types"
@@ -36,13 +36,13 @@ export function ReceiptPage() {
   const [notes, setNotes] = useState("")
   const [printing, setPrinting] = useState<{ receipt: Receipt; balanceAfter: number } | null>(null)
 
-  const outstanding = useLiveQuery(
+  const outstanding = useLiveData(
     () => (customerId ? customersService.getOutstanding(customerId) : Promise.resolve(0)),
     [customerId],
     0,
   )
-  const recent = useLiveQuery(() => receiptsService.getAll(), [], [])
-  const customers = useLiveQuery(() => customersService.getAll(), [], [])
+  const recent = useLiveData(() => receiptsService.getAll(), [], [])
+  const customers = useLiveData(() => customersService.getAll(), [], [])
   const custName = useMemo(() => {
     const m = new Map<number, string>()
     for (const c of customers) m.set(c.id!, c.name)

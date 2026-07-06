@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Plus, Search, Pencil, Trash2, Users, MoreHorizontal } from "lucide-react"
 import { toast } from "sonner"
 import type { Customer } from "@/db/types"
@@ -31,8 +31,8 @@ export function CustomersPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
 
-  const customers = useLiveQuery(() => customersService.getAll(), [], undefined)
-  const invoices = useLiveQuery(() => salesService.getInvoices(), [], [])
+  const customers = useLiveData(() => customersService.getAll(), [], undefined)
+  const invoices = useLiveData(() => salesService.getInvoices(), [], [])
 
   // Outstanding (Udhari) = opening balance + sum of unpaid invoice balances.
   const outstandingByCustomer = useMemo(() => {

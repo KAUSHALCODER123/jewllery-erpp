@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Download, FileBarChart } from "lucide-react"
 import * as XLSX from "xlsx"
 import { ledgerService, todayStr } from "@/services/dbService"
@@ -62,7 +62,7 @@ export function ReportsPage() {
 
 function PartyLedger() {
   const [customerId, setCustomerId] = useState<number | null>(null)
-  const data = useLiveQuery(
+  const data = useLiveData(
     () =>
       customerId
         ? ledgerService.customerLedger(customerId)
@@ -142,7 +142,7 @@ function PartyLedger() {
 
 function CashBook() {
   const [date, setDate] = useState(todayStr())
-  const data = useLiveQuery(() => ledgerService.cashBook(date), [date], null)
+  const data = useLiveData(() => ledgerService.cashBook(date), [date], null)
 
   return (
     <div className="space-y-3">
@@ -218,7 +218,7 @@ function CashBook() {
 
 function Gstr1() {
   const [month, setMonth] = useState(todayStr().slice(0, 7))
-  const rows = useLiveQuery(() => ledgerService.gstr1(month), [month], [])
+  const rows = useLiveData(() => ledgerService.gstr1(month), [month], [])
 
   const totals = useMemo(() => {
     return rows.reduce(
@@ -409,7 +409,7 @@ function Placeholder({ text }: { text: string }) {
 
 function Debtors() {
   const company = useSession((s) => s.company)
-  const debtors = useLiveQuery(() => ledgerService.sundryDebtors(), [], [])
+  const debtors = useLiveData(() => ledgerService.sundryDebtors(), [], [])
 
   const totalOutstanding = useMemo(() => {
     return (debtors ?? []).reduce((sum, d) => sum + d.outstanding, 0)
@@ -509,7 +509,7 @@ function Debtors() {
 
 function HsnSummary() {
   const [month, setMonth] = useState(todayStr().slice(0, 7))
-  const rows = useLiveQuery(() => ledgerService.gstHsnSummary(month), [month], [])
+  const rows = useLiveData(() => ledgerService.gstHsnSummary(month), [month], [])
 
   const totals = useMemo(() => {
     return (rows ?? []).reduce(

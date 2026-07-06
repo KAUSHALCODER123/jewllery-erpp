@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Check, ChevronsUpDown } from "lucide-react"
 import { customersService } from "@/services/dbService"
 import { cn } from "@/lib/utils"
@@ -29,7 +29,7 @@ export function CustomerCombobox({
   className?: string
 }) {
   const [open, setOpen] = useState(false)
-  const customers = useLiveQuery(() => customersService.getAll(), [], [])
+  const customers = useLiveData(() => customersService.getAll(), [], [])
   const selected = customers.find((c) => c.id === value) ?? null
 
   return (

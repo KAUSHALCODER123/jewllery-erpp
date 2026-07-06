@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { useRef } from "react"
 import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload, Printer, AlertTriangle, ShieldAlert } from "lucide-react"
 import { toast } from "sonner"
@@ -505,7 +505,7 @@ function PrintSettings() {
 }
 
 function Firms() {
-  const companies = useLiveQuery(() => authService.listCompanies(), [], [])
+  const companies = useLiveData(() => authService.listCompanies(), [], [])
   const setSessionCompany = useSession((s) => s.setCompanyProfile)
   const setCurrentId = useSession((s) => s.companyId)
   const [name, setName] = useState("")
@@ -591,7 +591,7 @@ function Firms() {
 }
 
 function UsersAdmin() {
-  const users = useLiveQuery(() => authService.listUsers(), [], [])
+  const users = useLiveData(() => authService.listUsers(), [], [])
   const [username, setUsername] = useState("")
   const [name, setName] = useState("")
   const [role, setRole] = useState<UserRole>("cashier")

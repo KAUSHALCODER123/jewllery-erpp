@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import {
   Plus,
   Search,
@@ -50,7 +50,7 @@ export function InventoryPage() {
   const [editItem, setEditItem] = useState<Item | null>(null)
   const [labelItems, setLabelItems] = useState<Item[] | null>(null)
 
-  const items = useLiveQuery(() => itemsService.getAll(), [], undefined)
+  const items = useLiveData(() => itemsService.getAll(), [], undefined)
 
   const filtered = useMemo(() => {
     if (!items) return []

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Plus, Hammer, ArrowDownToLine, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 import type { Karigar, KarigarJob } from "@/db/types"
@@ -46,8 +46,8 @@ export function KarigarPage() {
   const [issueOpen, setIssueOpen] = useState(false)
   const [receiving, setReceiving] = useState<KarigarJob | null>(null)
 
-  const karigars = useLiveQuery(() => karigarsService.getAll(), [], undefined)
-  const jobs = useLiveQuery(() => karigarsService.getJobs(), [], [])
+  const karigars = useLiveData(() => karigarsService.getAll(), [], undefined)
+  const jobs = useLiveData(() => karigarsService.getJobs(), [], [])
   const karigarName = useMemo(() => {
     const m = new Map<number, string>()
     for (const k of karigars ?? []) m.set(k.id!, k.name)
@@ -290,7 +290,7 @@ function IssueJobDialog({
   const [wastage, setWastage] = useState(0)
   const [description, setDescription] = useState("")
   const [orderId, setOrderId] = useState<string>("none")
-  const openOrders = useLiveQuery(() => ordersService.getOpen(), [], [])
+  const openOrders = useLiveData(() => ordersService.getOpen(), [], [])
 
   const save = async () => {
     if (!karigarId) return toast.error("Select a karigar")

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { Plus, Landmark, Receipt, Lock, Eye } from "lucide-react"
 import { toast } from "sonner"
 import type { Loan, LoanPayment } from "@/db/types"
@@ -39,9 +39,9 @@ export function GirviPage() {
   const [closing, setClosing] = useState<Loan | null>(null)
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null)
 
-  const loans = useLiveQuery(() => loansService.getAll(), [], undefined)
-  const customers = useLiveQuery(() => customersService.getAll(), [], [])
-  const payments = useLiveQuery(() => loansService.getAllPayments(), [], [])
+  const loans = useLiveData(() => loansService.getAll(), [], undefined)
+  const customers = useLiveData(() => customersService.getAll(), [], [])
+  const payments = useLiveData(() => loansService.getAllPayments(), [], [])
 
   const custName = useMemo(() => {
     const m = new Map<number, string>()
@@ -210,7 +210,7 @@ function CloseLoanDialog({
   loan: Loan
   onDone: () => void
 }) {
-  const payments = useLiveQuery(() => loansService.getPayments(loan.id!), [loan.id], [])
+  const payments = useLiveData(() => loansService.getPayments(loan.id!), [loan.id], [])
   const dues = useMemo(() => {
     return computeLoanDues(loan, payments ?? [], todayStr())
   }, [loan, payments])

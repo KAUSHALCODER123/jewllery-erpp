@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { X, Printer, MessageCircle } from "lucide-react"
 import { DEFAULT_INVOICE_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import type { SalesInvoice, SalesItem, UrdItem } from "@/db/types"
@@ -34,7 +34,7 @@ export function InvoiceReceipt({
     gstin: company?.gstin ?? "",
     phone: company?.phone ?? "",
   }
-  const customer = useLiveQuery(
+  const customer = useLiveData(
     () => customersService.get(invoice.customerId),
     [invoice.customerId],
     undefined,
@@ -55,7 +55,7 @@ export function InvoiceReceipt({
     return items.map((it) => it.itemId).filter((id): id is number => id !== undefined)
   }, [items])
 
-  const itemsFromDb = useLiveQuery(
+  const itemsFromDb = useLiveData(
     () => itemsService.getByIds(itemIds),
     [itemIds.join(",")],
     []

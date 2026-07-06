@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useLiveQuery } from "dexie-react-hooks"
+import { useLiveData } from "@/db/useLiveData"
 import { toast } from "sonner"
 import {
   TrendingUp,
@@ -31,7 +31,7 @@ export function Dashboard() {
   }
 
   // Reactive IndexedDB query logic for all dashboard metrics
-  const stats = useLiveQuery(async () => {
+  const stats = useLiveData(async () => {
     const today = dbService.todayStr()
     const currentMonth = today.substring(0, 7)
 
