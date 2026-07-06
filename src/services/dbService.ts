@@ -119,6 +119,9 @@ const itemsServiceDexie = {
   getByTag: (tag: string): Promise<Item | undefined> =>
     db.items.where("tag").equals(tag).first(),
 
+  getByIds: (ids: number[]): Promise<Item[]> =>
+    ids.length ? db.items.where("id").anyOf(ids).toArray() : Promise.resolve([]),
+
   /**
    * Insert an item. netWt is recomputed; a sequential tag is minted from the
    * category code (e.g. "RIN") when no tag is supplied.
@@ -421,6 +424,8 @@ const loansServiceDexie = {
 
   getPayments: (loanId: number): Promise<LoanPayment[]> =>
     db.loan_payments.where("loanId").equals(loanId).toArray(),
+
+  getAllPayments: (): Promise<LoanPayment[]> => db.loan_payments.toArray(),
 
   async addPayment(
     loanId: number,

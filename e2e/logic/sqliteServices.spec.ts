@@ -84,6 +84,19 @@ test("itemsService.update recomputes netWt when a weight changes", async () => {
   expect(update.params).toContain(8)
 })
 
+test("itemsService.getByIds builds an IN clause (and short-circuits empty)", async () => {
+  const { exec, calls } = fakeExecutor([{ match: /WHERE id IN/, rows: [{ id: 1, tag: "A" }, { id: 2, tag: "B" }] }])
+  const { itemsService } = makeSqliteServices(exec)
+  const rows = await itemsService.getByIds([1, 2])
+  expect(rows).toHaveLength(2)
+  expect(calls[0].sql).toContain("WHERE id IN ($1, $2)")
+  expect(calls[0].params).toEqual([1, 2])
+  // Empty input never hits the DB.
+  const before = calls.length
+  expect(await itemsService.getByIds([])).toEqual([])
+  expect(calls.length).toBe(before)
+})
+
 test("itemsService.getInStock filters on status", async () => {
   const { exec, calls } = fakeExecutor([{ match: /FROM items WHERE COALESCE/, rows: [] }])
   const { itemsService } = makeSqliteServices(exec)

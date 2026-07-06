@@ -3,8 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks"
 import { X, Printer, MessageCircle } from "lucide-react"
 import { DEFAULT_INVOICE_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import type { SalesInvoice, SalesItem, UrdItem } from "@/db/types"
-import { db } from "@/db/database"
-import { customersService } from "@/services/dbService"
+import { customersService, itemsService } from "@/services/dbService"
 import { formatAmount, formatDate } from "@/lib/format"
 import { receiptT } from "@/lib/receiptI18n"
 import { useSession } from "@/stores/useSession"
@@ -57,7 +56,7 @@ export function InvoiceReceipt({
   }, [items])
 
   const itemsFromDb = useLiveQuery(
-    () => db.items.where("id").anyOf(itemIds).toArray(),
+    () => itemsService.getByIds(itemIds),
     [itemIds.join(",")],
     []
   )

@@ -25,8 +25,9 @@ persist to SQLite via `tauri-plugin-sql`. This is the staged migration of
 | **dbService `isTauri()` dispatch** (behind `SQLITE_CUTOVER_ENABLED`, default off) | `src/services/dbService.ts`, `src/db/persistence.ts` | **wired** |
 | **First-run migration trigger** (Dexie→SQLite, localStorage-guarded) | `src/App.tsx` | **wired** |
 | **Named per-service exports dispatch** (a flag flip now routes the whole app) | `src/services/dbService.ts` | **done** |
-| Seam bypasses: `GirviPage` (all loan payments) + `InvoiceReceipt` (item HUID lookup) read raw `db` | components | pending (small — add service reads) |
+| **Seam bypasses removed** — `GirviPage` + `InvoiceReceipt` now use `loans.getAllPayments`/`getPayments` + `items.getByIds` (no component imports raw `db`) | components | **done** |
 | Multi-firm one-DB-per-company | `src/db/sqlite.ts` | pending |
+| `useLiveQuery` reactivity under SQLite (Dexie-only observable) | app-wide | pending (SQLite runtime concern) |
 | **Live desktop validation** (`$1` vs `?`, real sale/loan) | desktop-e2e CI | **the gate** |
 | dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs full set + live validation) |
 
@@ -80,10 +81,15 @@ Flipping blind is the exact risk prior sessions deferred for.
    `customersService`, … exports are now the DISPATCHED versions
    (`pick(<name>ServiceDexie, sqlite?.<name>Service)`), so a single flag flip
    routes both `dbService.*` and direct `import { customersService }` callers.
-   The concrete Dexie impls live as `*ServiceDexie` consts. STILL bypassing the
-   seam: `GirviPage` (`db.loan_payments.toArray()`) and `InvoiceReceipt`
-   (`db.items.where("id").anyOf(...)`) read the raw Dexie handle — route these
-   through a service read before the flip is total. (systemDb/auth stays Dexie.)
+   The concrete Dexie impls live as `*ServiceDexie` consts. Seam bypasses now
+   removed — `GirviPage` and `InvoiceReceipt` route through
+   `loans.getAllPayments`/`getPayments` and `items.getByIds`, so no component
+   imports the raw `db` handle. (systemDb/auth stays Dexie — separate follow-up.)
+
+   **Known SQLite-runtime gap:** screens use Dexie's `useLiveQuery` for
+   reactivity; SQLite has no equivalent observable, so under the flag reads won't
+   auto-refresh on write. Addressing this (manual invalidation / React Query /
+   a change signal) is part of desktop validation, not the data-layer port.
 8. **Validate on desktop-e2e CI**: flip the flag, build the desktop app, extend
    the smoke to create a sale + loan and assert they persist to SQLite. Confirm
    the `$1`/`?` placeholder dialect here.

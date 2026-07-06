@@ -3,7 +3,6 @@ import { useLiveQuery } from "dexie-react-hooks"
 import { Plus, Landmark, Receipt, Lock, Eye } from "lucide-react"
 import { toast } from "sonner"
 import type { Loan, LoanPayment } from "@/db/types"
-import { db } from "@/db/database"
 import { loansService, customersService, todayStr } from "@/services/dbService"
 import { formatAmount, formatDate, wt } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -42,7 +41,7 @@ export function GirviPage() {
 
   const loans = useLiveQuery(() => loansService.getAll(), [], undefined)
   const customers = useLiveQuery(() => customersService.getAll(), [], [])
-  const payments = useLiveQuery(() => db.loan_payments.toArray(), [], [])
+  const payments = useLiveQuery(() => loansService.getAllPayments(), [], [])
 
   const custName = useMemo(() => {
     const m = new Map<number, string>()
@@ -211,7 +210,7 @@ function CloseLoanDialog({
   loan: Loan
   onDone: () => void
 }) {
-  const payments = useLiveQuery(() => db.loan_payments.where("loanId").equals(loan.id!).toArray(), [loan.id], [])
+  const payments = useLiveQuery(() => loansService.getPayments(loan.id!), [loan.id], [])
   const dues = useMemo(() => {
     return computeLoanDues(loan, payments ?? [], todayStr())
   }, [loan, payments])

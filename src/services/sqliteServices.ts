@@ -185,6 +185,16 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
       return rows[0] ? decodeRow<Item>(rows[0], typesFor("items")) : undefined
     },
 
+    async getByIds(ids: number[]): Promise<Item[]> {
+      if (!ids.length) return []
+      const ph = ids.map((_, i) => `$${i + 1}`).join(", ")
+      const rows = await exec.query<Record<string, unknown>>(
+        `SELECT * FROM items WHERE id IN (${ph})`,
+        ids,
+      )
+      return rows.map((r) => decodeRow<Item>(r, typesFor("items")))
+    },
+
     add: (
       input: Omit<Item, "id" | "netWt" | "tag" | "createdAt" | "updatedAt"> & {
         tag?: string
@@ -380,6 +390,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
     getOpen: () => queryRows<Loan>("loans", " WHERE COALESCE(isClosed, 0) = 0 ORDER BY id DESC"),
     getPayments: (loanId: number) =>
       loanPaymentsRepo.where({ loanId } as never) as unknown as Promise<LoanPayment[]>,
+    getAllPayments: () => loanPaymentsRepo.getAll() as unknown as Promise<LoanPayment[]>,
     update: (id: number, patch: Partial<Loan>) => loansRepo.update(id, patch),
     close: (id: number, amountCollected: number) =>
       loansRepo.update(id, { isClosed: true, closedDate: todayStr(), amountCollected } as never),
