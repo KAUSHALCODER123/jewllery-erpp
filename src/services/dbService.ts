@@ -17,6 +17,9 @@
 import { computeLoanDues } from "@/features/girvi/interest"
 import { db, activeCompanyId, JewelDatabase, dbNameForCompany } from "@/db/database"
 import { systemDb, type Company, type User } from "@/db/systemDb"
+import { isTauri } from "@/db/sqlite"
+import { makeSqliteServices } from "@/services/sqliteServices"
+import { SQLITE_CUTOVER_ENABLED } from "@/db/persistence"
 import type {
   Counter,
   Customer,
@@ -1396,23 +1399,46 @@ export const maintenanceService = {
   },
 }
 
+/* ------------------------------------------------------------------ */
+/* Backend dispatch (Dexie ⇄ SQLite)                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * True only when the cutover is explicitly enabled AND we are in the Tauri
+ * desktop runtime. Stays false on web and until desktop validation flips the
+ * flag, so `dbService` keeps using the Dexie implementations below unchanged.
+ */
+const usingSqlite = SQLITE_CUTOVER_ENABLED && isTauri()
+
+// Construct the SQLite services only when actually dispatching to them
+// (constructing is side-effect-free, but there's no reason to on web).
+const sqlite = usingSqlite ? makeSqliteServices() : null
+
+/**
+ * Overlay the SQLite service over its Dexie counterpart when the cutover is on.
+ * The spread keeps any Dexie-only helper that has no SQLite port yet, so callers
+ * never hit an undefined method; when off, returns the Dexie service untouched.
+ */
+const pick = <T>(dexie: T, sqliteSvc: unknown): T =>
+  sqlite && sqliteSvc ? ({ ...dexie, ...(sqliteSvc as object) } as T) : dexie
+
 /** Convenience namespace re-export so callers can `import { dbService }`. */
 export const dbService = {
-  items: itemsService,
-  customers: customersService,
-  sales: salesService,
-  loans: loansService,
-  karigars: karigarsService,
-  orders: ordersService,
-  refining: refiningService,
-  suppliers: suppliersService,
-  purchases: purchaseService,
-  schemes: schemesService,
-  receipts: receiptsService,
-  ledger: ledgerService,
-  reports: reportsService,
+  items: pick(itemsService, sqlite?.itemsService),
+  customers: pick(customersService, sqlite?.customersService),
+  sales: pick(salesService, sqlite?.salesService),
+  loans: pick(loansService, sqlite?.loansService),
+  karigars: pick(karigarsService, sqlite?.karigarsService),
+  orders: pick(ordersService, sqlite?.ordersService),
+  refining: pick(refiningService, sqlite?.refiningService),
+  suppliers: pick(suppliersService, sqlite?.suppliersService),
+  purchases: pick(purchaseService, sqlite?.purchaseService),
+  schemes: pick(schemesService, sqlite?.schemesService),
+  receipts: pick(receiptsService, sqlite?.receiptsService),
+  ledger: pick(ledgerService, sqlite?.ledgerService),
+  reports: pick(reportsService, sqlite?.reportsService),
   maintenance: maintenanceService,
-  nextSequence,
+  nextSequence: sqlite ? sqlite.nextSequence : nextSequence,
   todayStr,
   addMonths,
   computeNetWt,

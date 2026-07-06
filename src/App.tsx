@@ -6,6 +6,8 @@ import { LoginPage } from "@/features/auth/LoginPage"
 import { authService } from "@/services/authService"
 import { useSession } from "@/stores/useSession"
 import { Toaster } from "@/components/ui/sonner"
+import { isTauri } from "@/db/sqlite"
+import { SQLITE_CUTOVER_ENABLED } from "@/db/persistence"
 
 // Route pages are code-split so heavy deps (xlsx in Reports, jsbarcode in
 // Item Master/Stock Audit) don't bloat the initial bundle.
@@ -32,9 +34,23 @@ function App() {
   const [ready, setReady] = useState(false)
   const user = useSession((s) => s.user)
 
-  // First-run bootstrap: ensure a default firm + owner account exist.
+  // First-run bootstrap: ensure a default firm + owner account exist, and — when
+  // the SQLite cutover is enabled under Tauri — copy existing Dexie data into
+  // SQLite once (localStorage-guarded). Both are no-ops on the web build.
   useEffect(() => {
-    void authService.bootstrap().finally(() => setReady(true))
+    const boot = async () => {
+      await authService.bootstrap()
+      if (SQLITE_CUTOVER_ENABLED && isTauri() && !localStorage.getItem("jewel.sqliteMigrated")) {
+        try {
+          const { migrateIndexedDbToSqlite } = await import("@/db/migrateToSqlite")
+          await migrateIndexedDbToSqlite()
+          localStorage.setItem("jewel.sqliteMigrated", "1")
+        } catch (err) {
+          console.error("SQLite migration failed", err)
+        }
+      }
+    }
+    void boot().finally(() => setReady(true))
   }, [])
 
   return (

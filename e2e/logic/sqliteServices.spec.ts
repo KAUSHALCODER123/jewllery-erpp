@@ -370,6 +370,29 @@ test("purchase.create mints a number and inserts header + lines atomically", asy
   expect(sqls.some((s) => s.includes('INSERT INTO "purchase_items"'))).toBeTruthy()
 })
 
+test("salesService.getFull returns header + lines + urd (or null)", async () => {
+  const { exec } = fakeExecutor([
+    { match: /FROM "sales_invoices" WHERE "id"/, rows: [{ id: 5, invoiceNo: "INV5" }] },
+    { match: /FROM "sales_items" WHERE "invoiceId"/, rows: [{ id: 1, invoiceId: 5, description: "Ring" }] },
+    { match: /FROM "urd_items" WHERE "invoiceId"/, rows: [{ id: 1, invoiceId: 5, description: "Old gold" }] },
+  ])
+  const { salesService } = makeSqliteServices(exec)
+  const full = await salesService.getFull(5)
+  expect(full?.invoice.invoiceNo).toBe("INV5")
+  expect(full?.items).toHaveLength(1)
+  expect(full?.urd).toHaveLength(1)
+
+  const { exec: exec2 } = fakeExecutor([{ match: /FROM "sales_invoices" WHERE "id"/, rows: [] }])
+  expect(await makeSqliteServices(exec2).salesService.getFull(99)).toBeNull()
+})
+
+test("loansService.getOpen filters out closed loans", async () => {
+  const { exec, calls } = fakeExecutor([{ match: /FROM "loans"/, rows: [] }])
+  const { loansService } = makeSqliteServices(exec)
+  await loansService.getOpen()
+  expect(calls[0].sql).toContain("COALESCE(isClosed, 0) = 0")
+})
+
 /* ---- read / report layer ---- */
 
 test("reportsService.getDayBook aggregates the day's invoices", async () => {

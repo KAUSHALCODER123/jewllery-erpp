@@ -22,7 +22,11 @@ persist to SQLite via `tauri-plugin-sql`. This is the staged migration of
 | **SQLite master services** (items, customers) + `nextSequence` | `src/services/sqliteServices.ts` | **done + unit-tested** |
 | **All atomic writers** (createInvoice, updateInvoice, loans.add/addPayment, karigar issue/receive, refining.create, schemes.addPayment, purchase.create) | `src/services/sqliteServices.ts` | **done + unit-tested** |
 | **Read/report layer** (getDayBook, customerLedger, cashBook, gstr1, gstHsnSummary, getSchedule, sundryDebtors) + masters (suppliers, receipts, orders, schemes/accounts) | `src/services/sqliteServices.ts` | **done + unit-tested** |
-| dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs live validation) |
+| **dbService `isTauri()` dispatch** (behind `SQLITE_CUTOVER_ENABLED`, default off) | `src/services/dbService.ts`, `src/db/persistence.ts` | **wired** |
+| **First-run migration trigger** (Dexie→SQLite, localStorage-guarded) | `src/App.tsx` | **wired** |
+| Route the named per-service exports (or move callers to the `dbService` namespace) | components | pending |
+| Multi-firm one-DB-per-company | `src/db/sqlite.ts` | pending |
+| **Live desktop validation** (`$1` vs `?`, real sale/loan) | desktop-e2e CI | **the gate** |
 | dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs full set + live validation) |
 
 `sqlBuilder` and `sqliteRepo` are verified in Node (`e2e/logic/`) with a fake
@@ -62,13 +66,24 @@ Flipping blind is the exact risk prior sessions deferred for.
    firm's HSN default from the SQLite `companies` table via `activeCompanyId()`),
    `sundryDebtors`, `getSchedule` keep the exact JS aggregation but read via a
    `queryRows` helper. **The SQLite service layer is now feature-complete.**
-5. **Flip**: `dbService` picks SQLite vs Dexie via `isTauri()` — ALL services at
-   once (mixed backends split-brain). Keep Dexie as the tested reference.
-6. **Wire the one-time bridge**: on first Tauri launch, if SQLite is empty and
-   Dexie has data, run `migrateIndexedDbToSqlite()` once (localStorage guard).
-7. **Validate on desktop-e2e CI**: extend the smoke to create a sale + loan and
-   assert they persist to SQLite.
-8. **Multi-firm**: one `sqlite:jewel_erp_co<id>.db` per company.
+5. ~~**Flip**: `dbService` picks SQLite vs Dexie~~ — **wired** behind
+   `SQLITE_CUTOVER_ENABLED` (src/db/persistence.ts, default `false`) AND
+   `isTauri()`. `dbService.*` overlays the SQLite service over its Dexie
+   counterpart (`{...dexie, ...sqlite}`) only when both are true; off → pure Dexie
+   (114 web tests confirm no change). The SQLite layer covers every namespace
+   method (spread keeps any un-ported helper as a safety net).
+6. ~~**Wire the one-time bridge**~~ — **wired**: `App.tsx` runs
+   `migrateIndexedDbToSqlite()` once on first Tauri launch when the flag is on
+   (dynamic import, localStorage `jewel.sqliteMigrated` guard). No-op on web.
+7. **Route named exports**: components that `import { customersService }` etc.
+   directly still get Dexie. Either switch those to the `dbService` namespace or
+   make the named exports dispatch too — the last wiring before the flip is total.
+   (systemDb/auth stays Dexie; a separate follow-up.)
+8. **Validate on desktop-e2e CI**: flip the flag, build the desktop app, extend
+   the smoke to create a sale + loan and assert they persist to SQLite. Confirm
+   the `$1`/`?` placeholder dialect here.
+9. **Multi-firm**: one `sqlite:jewel_erp_co<id>.db` per company (sqlite.ts loads a
+   fixed filename today).
 
 ## Guardrails
 

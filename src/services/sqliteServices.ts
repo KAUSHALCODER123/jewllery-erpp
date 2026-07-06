@@ -277,11 +277,25 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
     getInvoice: (id: number) =>
       salesRepo.get(id) as unknown as Promise<SalesInvoice | undefined>,
 
+    getInvoicesByDate: (date: string) =>
+      salesRepo.where({ date } as never) as unknown as Promise<SalesInvoice[]>,
+
     getLineItems: (invoiceId: number) =>
       salesItemsRepo.where({ invoiceId } as never) as unknown as Promise<SalesItem[]>,
 
     getUrdItems: (invoiceId: number) =>
       urdRepo.where({ invoiceId } as never) as unknown as Promise<UrdItem[]>,
+
+    /** Fetch a complete invoice (header + lines + URD) for editing. */
+    async getFull(id: number): Promise<{ invoice: SalesInvoice; items: SalesItem[]; urd: UrdItem[] } | null> {
+      const invoice = (await salesRepo.get(id)) as unknown as SalesInvoice | undefined
+      if (!invoice) return null
+      const [items, urd] = await Promise.all([
+        salesItemsRepo.where({ invoiceId: id } as never),
+        urdRepo.where({ invoiceId: id } as never),
+      ])
+      return { invoice, items: items as unknown as SalesItem[], urd: urd as unknown as UrdItem[] }
+    },
 
     /**
      * Persist a complete sale atomically — the SQLite port of the Dexie
@@ -363,9 +377,12 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
   const loansService = {
     getAll: () => loansRepo.getAll(["id", "DESC"]) as unknown as Promise<Loan[]>,
     get: (id: number) => loansRepo.get(id) as unknown as Promise<Loan | undefined>,
+    getOpen: () => queryRows<Loan>("loans", " WHERE COALESCE(isClosed, 0) = 0 ORDER BY id DESC"),
     getPayments: (loanId: number) =>
       loanPaymentsRepo.where({ loanId } as never) as unknown as Promise<LoanPayment[]>,
     update: (id: number, patch: Partial<Loan>) => loansRepo.update(id, patch),
+    close: (id: number, amountCollected: number) =>
+      loansRepo.update(id, { isClosed: true, closedDate: todayStr(), amountCollected } as never),
 
     async add(
       input: Omit<Loan, "id" | "loanNo" | "createdAt" | "isClosed" | "principalOutstanding">,
@@ -636,6 +653,10 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
   const purchaseService = {
     getInvoices: () =>
       purchaseRepo.getAll(["id", "DESC"]) as unknown as Promise<PurchaseInvoice[]>,
+    getInvoicesByDate: (date: string) =>
+      purchaseRepo.where({ date } as never) as unknown as Promise<PurchaseInvoice[]>,
+    getLineItems: (purchaseId: number) =>
+      purchaseItemsRepo.where({ purchaseId } as never),
 
     /** Persist a purchase invoice + its line items atomically. */
     async create(draft: PurchaseDraft): Promise<PurchaseInvoice> {
