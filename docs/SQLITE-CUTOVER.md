@@ -21,8 +21,7 @@ persist to SQLite via `tauri-plugin-sql`. This is the staged migration of
 | **Per-table column-type map** | `src/db/sqliteSchema.ts` | **done** |
 | **SQLite master services** (items, customers) + `nextSequence` | `src/services/sqliteServices.ts` | **done + unit-tested** |
 | **All atomic writers** (createInvoice, updateInvoice, loans.add/addPayment, karigar issue/receive, refining.create, schemes.addPayment, purchase.create) | `src/services/sqliteServices.ts` | **done + unit-tested** |
-| **Read/report layer** (getDayBook, customerLedger, cashBook, gstr1, getSchedule, sundryDebtors) + masters (suppliers, receipts, orders, schemes/accounts) | `src/services/sqliteServices.ts` | **done + unit-tested** |
-| `gstHsnSummary` (proportional HSN allocation) | `src/services/sqliteServices.ts` | pending (needs company HSN default) |
+| **Read/report layer** (getDayBook, customerLedger, cashBook, gstr1, gstHsnSummary, getSchedule, sundryDebtors) + masters (suppliers, receipts, orders, schemes/accounts) | `src/services/sqliteServices.ts` | **done + unit-tested** |
 | dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs live validation) |
 | dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs full set + live validation) |
 
@@ -59,10 +58,10 @@ Flipping blind is the exact risk prior sessions deferred for.
    `schemes.addPayment` (dup-slot guard), `purchase.create`. Rollback-on-failure
    proven for the sale and loan paths.
 4. ~~**Reports/ledger** (`reportsService`, `ledgerService`)~~ — **done + tested**:
-   `getDayBook`, `customerLedger`, `cashBook`, `gstr1`, `sundryDebtors`,
-   `getSchedule` keep the exact JS aggregation but read via a `queryRows` helper
-   (SQL + `decodeRow`). Remaining: `gstHsnSummary` (proportional HSN allocation —
-   needs the active company's HSN default from the SQLite `companies` table).
+   `getDayBook`, `customerLedger`, `cashBook`, `gstr1`, `gstHsnSummary` (reads the
+   firm's HSN default from the SQLite `companies` table via `activeCompanyId()`),
+   `sundryDebtors`, `getSchedule` keep the exact JS aggregation but read via a
+   `queryRows` helper. **The SQLite service layer is now feature-complete.**
 5. **Flip**: `dbService` picks SQLite vs Dexie via `isTauri()` — ALL services at
    once (mixed backends split-brain). Keep Dexie as the tested reference.
 6. **Wire the one-time bridge**: on first Tauri launch, if SQLite is empty and

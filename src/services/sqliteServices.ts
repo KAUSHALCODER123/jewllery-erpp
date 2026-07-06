@@ -865,9 +865,91 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
       }
       return debtors.sort((a, b) => b.outstanding - a.outstanding)
     },
-  }
 
-  void activeCompanyId // reserved for gstHsnSummary (multi-firm HSN default)
+    /**
+     * GST HSN-wise summary for a month. Each invoice's tax is split across its
+     * line items in proportion to their line value, then rolled up by HSN code
+     * (falling back to the firm's default HSN). Mirrors the Dexie aggregation.
+     */
+    async gstHsnSummary(month: string): Promise<{
+      hsn: string
+      description: string
+      taxableValue: number
+      cgst: number
+      sgst: number
+      igst: number
+      qty: number
+      netWt: number
+    }[]> {
+      const companyRows = await exec.query<{ defaultHsnCode?: string }>(
+        "SELECT defaultHsnCode FROM companies WHERE id = $1",
+        [activeCompanyId()],
+      )
+      const defaultHsn = companyRows[0]?.defaultHsnCode || "7113"
+
+      const invoices = await queryRows<any>("sales_invoices", " WHERE date LIKE $1", [`${month}%`])
+      if (!invoices.length) return []
+
+      const invoiceIds = invoices.map((i) => i.id)
+      const invPh = invoiceIds.map((_, i) => `$${i + 1}`).join(", ")
+      const salesItems = await exec.query<any>(
+        `SELECT * FROM sales_items WHERE invoiceId IN (${invPh})`,
+        invoiceIds,
+      )
+
+      const lineItemIds = [...new Set(salesItems.map((s) => s.itemId).filter((x): x is number => x != null))]
+      const qtyById = new Map<number, number>()
+      if (lineItemIds.length) {
+        const idPh = lineItemIds.map((_, i) => `$${i + 1}`).join(", ")
+        const stockItems = await exec.query<{ id: number; quantity?: number }>(
+          `SELECT id, quantity FROM items WHERE id IN (${idPh})`,
+          lineItemIds,
+        )
+        for (const s of stockItems) qtyById.set(s.id, s.quantity ?? 1)
+      }
+
+      const summaryMap = new Map<
+        string,
+        { hsn: string; description: string; taxableValue: number; cgst: number; sgst: number; igst: number; qty: number; netWt: number }
+      >()
+      for (const inv of invoices) {
+        const items = salesItems.filter((item) => item.invoiceId === inv.id)
+        const totalGross = inv.totalGrossAmount || 1
+        for (const item of items) {
+          const hsn = item.hsn || defaultHsn
+          const prop = item.finalAmount / totalGross
+          const lineTaxable = round(prop * inv.taxableAmount)
+          const lineCgst = round(prop * inv.cgst)
+          const lineSgst = round(prop * inv.sgst)
+          const lineIgst = round(prop * (inv.igst || 0))
+          const lineNetWt = item.netWt || 0
+          const lineQty = item.itemId != null ? qtyById.get(item.itemId) ?? 1 : 1
+
+          const existing = summaryMap.get(hsn)
+          if (existing) {
+            existing.taxableValue = round(existing.taxableValue + lineTaxable)
+            existing.cgst = round(existing.cgst + lineCgst)
+            existing.sgst = round(existing.sgst + lineSgst)
+            existing.igst = round(existing.igst + lineIgst)
+            existing.qty += lineQty
+            existing.netWt = round3(existing.netWt + lineNetWt)
+          } else {
+            summaryMap.set(hsn, {
+              hsn,
+              description: item.description || "Gold/Silver Jewellery",
+              taxableValue: lineTaxable,
+              cgst: lineCgst,
+              sgst: lineSgst,
+              igst: lineIgst,
+              qty: lineQty,
+              netWt: lineNetWt,
+            })
+          }
+        }
+      }
+      return Array.from(summaryMap.values())
+    },
+  }
 
   return {
     nextSequence,

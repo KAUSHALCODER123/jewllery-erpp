@@ -457,6 +457,46 @@ test("schemesService.getSchedule spans the plan and flags paid slots", async () 
   expect(sched[1].dueDate).toBe("2026-02-10")
 })
 
+test("ledgerService.gstHsnSummary splits tax by line value and rolls up by HSN", async () => {
+  const { exec } = fakeExecutor([
+    { match: /FROM companies WHERE id/, rows: [{ defaultHsnCode: "7113" }] },
+    {
+      match: /FROM "sales_invoices" WHERE date LIKE/,
+      rows: [{ id: 1, date: "2026-07-05", totalGrossAmount: 100000, taxableAmount: 100000, cgst: 1500, sgst: 1500, igst: 0 }],
+    },
+    {
+      match: /FROM sales_items WHERE invoiceId IN/,
+      rows: [
+        { invoiceId: 1, itemId: 10, hsn: "7113", finalAmount: 60000, netWt: 6 },
+        { invoiceId: 1, itemId: 11, hsn: "7114", finalAmount: 40000, netWt: 4 },
+      ],
+    },
+    { match: /FROM items WHERE id IN/, rows: [{ id: 10, quantity: 1 }, { id: 11, quantity: 2 }] },
+  ])
+  const { ledgerService } = makeSqliteServices(exec)
+  const summary = await ledgerService.gstHsnSummary("2026-07")
+  const byHsn = Object.fromEntries(summary.map((r) => [r.hsn, r]))
+
+  // 7113 line = 60% of the bill → 60000 taxable, 900 CGST, qty 1, 6g.
+  expect(byHsn["7113"].taxableValue).toBe(60000)
+  expect(byHsn["7113"].cgst).toBe(900)
+  expect(byHsn["7113"].qty).toBe(1)
+  expect(byHsn["7113"].netWt).toBe(6)
+  // 7114 line = 40% → 40000 taxable, 600 CGST, qty 2 (from stock), 4g.
+  expect(byHsn["7114"].taxableValue).toBe(40000)
+  expect(byHsn["7114"].cgst).toBe(600)
+  expect(byHsn["7114"].qty).toBe(2)
+})
+
+test("ledgerService.gstHsnSummary returns [] for a month with no invoices", async () => {
+  const { exec } = fakeExecutor([
+    { match: /FROM companies WHERE id/, rows: [{ defaultHsnCode: "7113" }] },
+    { match: /FROM "sales_invoices" WHERE date LIKE/, rows: [] },
+  ])
+  const { ledgerService } = makeSqliteServices(exec)
+  expect(await ledgerService.gstHsnSummary("2026-01")).toEqual([])
+})
+
 test("suppliersService.getOutstanding = opening + unpaid purchase balances", async () => {
   const { exec } = fakeExecutor([
     { match: /FROM "suppliers" WHERE "id"/, rows: [{ id: 1, openingBalance: 2000 }] },
