@@ -11,6 +11,12 @@
  *
  * NOTE: production builds omit the DEV-only window.__jewel bridge, so this is a
  * pure UI smoke — no service-layer access. Run:  node e2e-desktop/desktop.smoke.mjs
+ *
+ * When built with VITE_SQLITE_CUTOVER=1 (the desktop-e2e CI does this), this also
+ * validates the SQLite cutover end-to-end on the real binary: login exercises the
+ * SQLite system DB (auth bootstrap + verify), and the sale round-trip below writes
+ * an invoice via SQLite then reads the walk-in customer back from a fresh page
+ * mount — proving persistence, not just an in-memory write.
  */
 import { spawn } from "node:child_process"
 import path from "node:path"
@@ -103,6 +109,56 @@ async function main() {
     await billing.click()
     await driver.wait(
       until.elementLocated(By.xpath('//*[contains(text(), "Checkout")]')),
+      TIMEOUT,
+    )
+  })
+
+  // ---- Sale round-trip (validates the SQLite write+read path on desktop) ----
+  const SALE_CUSTOMER = "Desktop SQLite Buyer"
+
+  await step("add a sales line to the grid", async () => {
+    await (await driver.findElement(By.xpath('//button[contains(., "Blank row")]'))).click()
+    const desc = await driver.wait(
+      until.elementLocated(By.css('input[aria-label="Description"]')),
+      TIMEOUT,
+    )
+    await desc.sendKeys("Gold Coin 10g")
+    // NumCell selects-all on focus, so sendKeys replaces the "0" placeholder.
+    await (await driver.findElement(By.css('input[aria-label="Net weight"]'))).sendKeys("10")
+    await (await driver.findElement(By.css('input[aria-label="Rate per gram"]'))).sendKeys("6000")
+  })
+
+  await step("create + select a walk-in customer", async () => {
+    await (await driver.findElement(By.xpath('//*[contains(text(), "Select customer")]'))).click()
+    const input = await driver.wait(
+      until.elementLocated(By.css('input[placeholder*="Search"]')),
+      TIMEOUT,
+    )
+    await input.sendKeys(SALE_CUSTOMER)
+    const addItem = await driver.wait(
+      until.elementLocated(By.xpath('//*[contains(text(), "as walk-in customer")]')),
+      TIMEOUT,
+    )
+    await addItem.click()
+  })
+
+  await step("take full cash and Save & Print", async () => {
+    await (await driver.findElement(By.xpath('//button[normalize-space()="full"]'))).click()
+    await (await driver.findElement(By.xpath('//button[contains(., "Save & Print")]'))).click()
+  })
+
+  await step("SQLite round-trip: invoice minted, then customer read back", async () => {
+    // createInvoice minted an INV number from the (SQLite) counter and printed it.
+    await driver.wait(
+      until.elementLocated(By.xpath('//*[contains(text(), "Invoice INV")]')),
+      TIMEOUT,
+    )
+    // Close the receipt and open Customers — a fresh mount re-reads from SQLite,
+    // so seeing the walk-in customer proves the write persisted.
+    await (await driver.findElement(By.xpath('//button[contains(., "Close")]'))).click()
+    await (await driver.findElement(By.xpath('//a[contains(., "Customers")]'))).click()
+    await driver.wait(
+      until.elementLocated(By.xpath(`//*[contains(text(), "${SALE_CUSTOMER}")]`)),
       TIMEOUT,
     )
   })

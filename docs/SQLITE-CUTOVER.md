@@ -90,9 +90,13 @@ Flipping blind is the exact risk prior sessions deferred for.
    reactivity; SQLite has no equivalent observable, so under the flag reads won't
    auto-refresh on write. Addressing this (manual invalidation / React Query /
    a change signal) is part of desktop validation, not the data-layer port.
-8. **Validate on desktop-e2e CI**: flip the flag, build the desktop app, extend
-   the smoke to create a sale + loan and assert they persist to SQLite. Confirm
-   the `$1`/`?` placeholder dialect here.
+8. ~~**Validate on desktop-e2e CI**~~ — **set up**: the flag is now build-time
+   (`VITE_SQLITE_CUTOVER=1`), and `.github/workflows/desktop-e2e.yml` builds the
+   desktop binary with it ON and runs the smoke, which does a full sale round-trip
+   (write via SQLite → read the customer back from a fresh mount). Login already
+   exercises the SQLite system DB. **This job IS the gate** — its first real run
+   confirms the `$1`/`?` dialect and the end-to-end SQLite path on the binary.
+   (Can't run on the primary dev box — WDAC blocks `cargo install tauri-driver`.)
 9. ~~**Multi-firm**: one `sqlite:jewel_erp_co<id>.db` per company~~ — **done**:
    `getSqlite()` resolves `dbFileForCompany(activeCompanyId())` (firm 1 =
    `jewel_erp.db`, others `jewel_erp_co<id>.db` — mirrors `dbNameForCompany`),

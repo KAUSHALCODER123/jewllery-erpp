@@ -39,10 +39,14 @@ jobs:
 
       # windows-latest ships Edge + a matching msedgedriver on PATH, which
       # tauri-driver uses to talk to WebView2.
-      - name: Build web bundle + desktop binary
+      # VITE_SQLITE_CUTOVER=1 builds with the cutover ON so the smoke validates
+      # the SQLite path (auth + a sale round-trip) on the real binary.
+      - name: Build web bundle + desktop binary (SQLite cutover ON)
+        env:
+          VITE_SQLITE_CUTOVER: "1"
         run: |
           npm run build
           cargo build --release --manifest-path src-tauri/Cargo.toml
 
-      - name: Run desktop smoke
+      - name: Run desktop smoke (login + SQLite sale round-trip)
         run: npm run test:desktop

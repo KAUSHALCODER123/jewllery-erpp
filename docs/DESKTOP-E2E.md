@@ -46,7 +46,26 @@ npm run test:desktop
 
 That launches `tauri-driver`, opens the packaged app, and asserts: the login
 form renders, the first firm selects, `admin/admin` logs in, the dashboard shell
-appears, and Billing/POS routes. Exit code is non-zero on any failed step.
+appears, Billing/POS routes, and a **sale round-trip** (add a line → walk-in
+customer → full cash → Save & Print → invoice minted → customer read back from a
+fresh Customers mount). Exit code is non-zero on any failed step.
+
+### Validating the SQLite cutover
+
+Build with `VITE_SQLITE_CUTOVER=1` to flip the app onto the SQLite backend
+(`src/db/persistence.ts`), then run the same smoke — login exercises the SQLite
+system DB (auth bootstrap + verify) and the sale round-trip writes an invoice via
+SQLite and reads the customer back, proving persistence on the real binary:
+
+```bash
+VITE_SQLITE_CUTOVER=1 npm run build
+cd src-tauri && cargo build --release && cd ..
+npm run test:desktop
+```
+
+This is the **cutover validation gate** (`docs/SQLITE-CUTOVER.md`). Confirm the
+`$1` vs `?` placeholder dialect here — if the plugin rejects `$1`, adjust
+`sqlBuilder`/`sqliteServices` in one place. The CI job below runs exactly this.
 
 > IndexedDB persists in the app's WebView2 user-data dir between runs, so the
 > first run bootstraps `admin/admin` and later runs reuse it. To force a clean
