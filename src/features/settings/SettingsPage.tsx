@@ -8,12 +8,7 @@ import { RECEIPT_LANGUAGES, type ReceiptLang } from "@/lib/receiptI18n"
 import { Textarea } from "@/components/ui/textarea"
 import { authService } from "@/services/authService"
 import { maintenanceService, type BackupFile } from "@/services/dbService"
-import {
-  DEFAULT_INVOICE_TEMPLATE,
-  DEFAULT_DUES_TEMPLATE,
-  DEFAULT_GIRVI_TEMPLATE,
-  DEFAULT_SCHEME_TEMPLATE,
-} from "@/lib/waTemplates"
+import { defaultWaTemplate } from "@/lib/waTemplates"
 import {
   Dialog,
   DialogContent,
@@ -1053,10 +1048,10 @@ function NotificationTemplates() {
   useEffect(() => {
     if (company) {
       setForm({
-        templateInvoice: company.templateInvoice ?? DEFAULT_INVOICE_TEMPLATE,
-        templateDues: company.templateDues ?? DEFAULT_DUES_TEMPLATE,
-        templateGirvi: company.templateGirvi ?? DEFAULT_GIRVI_TEMPLATE,
-        templateScheme: company.templateScheme ?? DEFAULT_SCHEME_TEMPLATE,
+        templateInvoice: company.templateInvoice ?? defaultWaTemplate("invoice", company.receiptLanguage),
+        templateDues: company.templateDues ?? defaultWaTemplate("dues", company.receiptLanguage),
+        templateGirvi: company.templateGirvi ?? defaultWaTemplate("girvi", company.receiptLanguage),
+        templateScheme: company.templateScheme ?? defaultWaTemplate("scheme", company.receiptLanguage),
       })
     }
   }, [company])
@@ -1104,7 +1099,7 @@ function NotificationTemplates() {
             variant="ghost"
             size="xs"
             className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
-            onClick={() => resetTemplate("templateInvoice", DEFAULT_INVOICE_TEMPLATE)}
+            onClick={() => resetTemplate("templateInvoice", defaultWaTemplate("invoice", company.receiptLanguage))}
           >
             Reset to Default
           </Button>
@@ -1140,7 +1135,7 @@ function NotificationTemplates() {
             variant="ghost"
             size="xs"
             className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
-            onClick={() => resetTemplate("templateDues", DEFAULT_DUES_TEMPLATE)}
+            onClick={() => resetTemplate("templateDues", defaultWaTemplate("dues", company.receiptLanguage))}
           >
             Reset to Default
           </Button>
@@ -1176,7 +1171,7 @@ function NotificationTemplates() {
             variant="ghost"
             size="xs"
             className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
-            onClick={() => resetTemplate("templateGirvi", DEFAULT_GIRVI_TEMPLATE)}
+            onClick={() => resetTemplate("templateGirvi", defaultWaTemplate("girvi", company.receiptLanguage))}
           >
             Reset to Default
           </Button>
@@ -1212,7 +1207,7 @@ function NotificationTemplates() {
             variant="ghost"
             size="xs"
             className="h-6 text-[10px] text-muted-foreground hover:text-foreground"
-            onClick={() => resetTemplate("templateScheme", DEFAULT_SCHEME_TEMPLATE)}
+            onClick={() => resetTemplate("templateScheme", defaultWaTemplate("scheme", company.receiptLanguage))}
           >
             Reset to Default
           </Button>

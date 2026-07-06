@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import type { Scheme, SchemeAccount, SchemePayment, PaymentMode } from "@/db/types"
 import { schemesService, customersService, todayStr } from "@/services/dbService"
 import { formatAmount, formatDate, formatINR } from "@/lib/format"
-import { DEFAULT_SCHEME_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
+import { defaultWaTemplate, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import { ChitReceipt } from "./ChitReceipt"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/stores/useSession"
@@ -636,7 +636,7 @@ function AccountDetailsDialog({
       return
     }
 
-    const text = fillTemplate(company?.templateScheme || DEFAULT_SCHEME_TEMPLATE, {
+    const text = fillTemplate(company?.templateScheme || defaultWaTemplate("scheme", company?.receiptLanguage), {
       customerName: customer.name,
       monthlyAmount: formatAmount(scheme.monthlyAmount),
       accountNo: account.accountNo,

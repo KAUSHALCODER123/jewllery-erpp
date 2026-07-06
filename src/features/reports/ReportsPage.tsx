@@ -5,7 +5,7 @@ import * as XLSX from "xlsx"
 import { ledgerService, todayStr } from "@/services/dbService"
 import { formatAmount } from "@/lib/format"
 import { toCsv, downloadText } from "@/lib/csv"
-import { DEFAULT_DUES_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
+import { defaultWaTemplate, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
 import { useSession } from "@/stores/useSession"
@@ -425,7 +425,7 @@ function Debtors() {
   }
 
   const handleWhatsApp = (mobile: string, name: string, outstanding: number) => {
-    const text = fillTemplate(company?.templateDues || DEFAULT_DUES_TEMPLATE, {
+    const text = fillTemplate(company?.templateDues || defaultWaTemplate("dues", company?.receiptLanguage), {
       customerName: name,
       outstanding: formatAmount(outstanding),
       companyName: company?.name || "",

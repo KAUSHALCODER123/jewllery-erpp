@@ -1,7 +1,7 @@
 import { useMemo } from "react"
 import { useLiveData } from "@/db/useLiveData"
 import { X, Printer, MessageCircle } from "lucide-react"
-import { DEFAULT_INVOICE_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
+import { defaultWaTemplate, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import type { SalesInvoice, SalesItem, UrdItem } from "@/db/types"
 import { customersService, itemsService } from "@/services/dbService"
 import { formatAmount, formatDate } from "@/lib/format"
@@ -82,10 +82,10 @@ export function InvoiceReceipt({
             className="bg-[#25D366] text-white hover:bg-[#1da851]"
             onClick={() => {
               const statusStr = invoice.balance > 0
-                ? `Balance Due: ₹${formatAmount(invoice.balance)}`
-                : "Paid in full. Thank you!"
+                ? `${t("balanceDue")}: ₹${formatAmount(invoice.balance)}`
+                : t("paidInFull")
               const text = fillTemplate(
-                company?.templateInvoice || DEFAULT_INVOICE_TEMPLATE,
+                company?.templateInvoice || defaultWaTemplate("invoice", company?.receiptLanguage),
                 {
                   companyName: SHOP.name,
                   invoiceNo: invoice.invoiceNo,

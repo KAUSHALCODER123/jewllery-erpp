@@ -6,7 +6,7 @@ import type { Loan, LoanPayment } from "@/db/types"
 import { loansService, customersService, todayStr } from "@/services/dbService"
 import { formatAmount, formatDate, wt } from "@/lib/format"
 import { computeLoanDues } from "./interest"
-import { DEFAULT_GIRVI_TEMPLATE, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
+import { defaultWaTemplate, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -74,7 +74,7 @@ export function LoanDetailsDialog({
 
   const sendWhatsAppReminder = () => {
     if (!customer) return
-    const text = fillTemplate(company?.templateGirvi || DEFAULT_GIRVI_TEMPLATE, {
+    const text = fillTemplate(company?.templateGirvi || defaultWaTemplate("girvi", company?.receiptLanguage), {
       customerName: customer.name,
       loanNo: loan.loanNo,
       loanDate: formatDate(loan.date),
