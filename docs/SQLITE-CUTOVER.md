@@ -24,7 +24,8 @@ persist to SQLite via `tauri-plugin-sql`. This is the staged migration of
 | **Read/report layer** (getDayBook, customerLedger, cashBook, gstr1, gstHsnSummary, getSchedule, sundryDebtors) + masters (suppliers, receipts, orders, schemes/accounts) | `src/services/sqliteServices.ts` | **done + unit-tested** |
 | **dbService `isTauri()` dispatch** (behind `SQLITE_CUTOVER_ENABLED`, default off) | `src/services/dbService.ts`, `src/db/persistence.ts` | **wired** |
 | **First-run migration trigger** (Dexie→SQLite, localStorage-guarded) | `src/App.tsx` | **wired** |
-| Route the named per-service exports (or move callers to the `dbService` namespace) | components | pending |
+| **Named per-service exports dispatch** (a flag flip now routes the whole app) | `src/services/dbService.ts` | **done** |
+| Seam bypasses: `GirviPage` (all loan payments) + `InvoiceReceipt` (item HUID lookup) read raw `db` | components | pending (small — add service reads) |
 | Multi-firm one-DB-per-company | `src/db/sqlite.ts` | pending |
 | **Live desktop validation** (`$1` vs `?`, real sale/loan) | desktop-e2e CI | **the gate** |
 | dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs full set + live validation) |
@@ -75,10 +76,14 @@ Flipping blind is the exact risk prior sessions deferred for.
 6. ~~**Wire the one-time bridge**~~ — **wired**: `App.tsx` runs
    `migrateIndexedDbToSqlite()` once on first Tauri launch when the flag is on
    (dynamic import, localStorage `jewel.sqliteMigrated` guard). No-op on web.
-7. **Route named exports**: components that `import { customersService }` etc.
-   directly still get Dexie. Either switch those to the `dbService` namespace or
-   make the named exports dispatch too — the last wiring before the flip is total.
-   (systemDb/auth stays Dexie; a separate follow-up.)
+7. ~~**Route named exports**~~ — **done**: the public `itemsService`,
+   `customersService`, … exports are now the DISPATCHED versions
+   (`pick(<name>ServiceDexie, sqlite?.<name>Service)`), so a single flag flip
+   routes both `dbService.*` and direct `import { customersService }` callers.
+   The concrete Dexie impls live as `*ServiceDexie` consts. STILL bypassing the
+   seam: `GirviPage` (`db.loan_payments.toArray()`) and `InvoiceReceipt`
+   (`db.items.where("id").anyOf(...)`) read the raw Dexie handle — route these
+   through a service read before the flip is total. (systemDb/auth stays Dexie.)
 8. **Validate on desktop-e2e CI**: flip the flag, build the desktop app, extend
    the smoke to create a sale + loan and assert they persist to SQLite. Confirm
    the `$1`/`?` placeholder dialect here.

@@ -107,7 +107,7 @@ export async function nextSequence(
 export const computeNetWt = (grossWt: number, stoneWt: number): number =>
   Math.max(0, Number((grossWt - stoneWt).toFixed(3)))
 
-export const itemsService = {
+const itemsServiceDexie = {
   getAll: (): Promise<Item[]> => db.items.orderBy("id").reverse().toArray(),
 
   getInStock: (): Promise<Item[]> =>
@@ -164,7 +164,7 @@ export const itemsService = {
   /** Case-insensitive search over tag / name / huid. */
   async search(term: string): Promise<Item[]> {
     const q = term.trim().toLowerCase()
-    if (!q) return itemsService.getAll()
+    if (!q) return itemsServiceDexie.getAll()
     const all = await db.items.toArray()
     return all.filter(
       (i) =>
@@ -181,7 +181,7 @@ export const itemsService = {
 /* Customers                                                          */
 /* ------------------------------------------------------------------ */
 
-export const customersService = {
+const customersServiceDexie = {
   getAll: (): Promise<Customer[]> => db.customers.orderBy("name").toArray(),
 
   get: (id: number): Promise<Customer | undefined> => db.customers.get(id),
@@ -205,7 +205,7 @@ export const customersService = {
 
   async search(term: string): Promise<Customer[]> {
     const q = term.trim().toLowerCase()
-    if (!q) return customersService.getAll()
+    if (!q) return customersServiceDexie.getAll()
     const all = await db.customers.toArray()
     return all.filter(
       (c) => c.name.toLowerCase().includes(q) || c.mobile.includes(q),
@@ -240,7 +240,7 @@ export const customersService = {
 /* Receipts (Udhari / credit collection)                              */
 /* ------------------------------------------------------------------ */
 
-export const receiptsService = {
+const receiptsServiceDexie = {
   getAll: (): Promise<Receipt[]> =>
     db.receipts.orderBy("id").reverse().toArray(),
 
@@ -270,7 +270,7 @@ export interface SaleDraft {
   urd: Omit<UrdItem, "id" | "invoiceId">[]
 }
 
-export const salesService = {
+const salesServiceDexie = {
   getInvoices: (): Promise<SalesInvoice[]> =>
     db.sales_invoices.orderBy("id").reverse().toArray(),
 
@@ -395,7 +395,7 @@ export const salesService = {
 /* Loans (Girvi)                                                      */
 /* ------------------------------------------------------------------ */
 
-export const loansService = {
+const loansServiceDexie = {
   getAll: (): Promise<Loan[]> => db.loans.orderBy("id").reverse().toArray(),
 
   get: (id: number): Promise<Loan | undefined> => db.loans.get(id),
@@ -509,7 +509,7 @@ export const loansService = {
 /* Karigars (goldsmiths) + jobs                                       */
 /* ------------------------------------------------------------------ */
 
-export const karigarsService = {
+const karigarsServiceDexie = {
   getAll: (): Promise<Karigar[]> => db.karigars.orderBy("name").toArray(),
 
   get: (id: number): Promise<Karigar | undefined> => db.karigars.get(id),
@@ -608,7 +608,7 @@ export interface DayBookSummary {
   outstandingCreated: number
 }
 
-export const reportsService = {
+const reportsServiceDexie = {
   async getDayBook(date: string = todayStr()): Promise<DayBookSummary> {
     const invoices = await db.sales_invoices.where("date").equals(date).toArray()
     return {
@@ -630,7 +630,7 @@ const round = (n: number): number => Number(n.toFixed(2))
 /* Suppliers                                                          */
 /* ------------------------------------------------------------------ */
 
-export const suppliersService = {
+const suppliersServiceDexie = {
   getAll: (): Promise<Supplier[]> => db.suppliers.orderBy("name").toArray(),
   get: (id: number): Promise<Supplier | undefined> => db.suppliers.get(id),
 
@@ -673,7 +673,7 @@ export interface PurchaseDraft {
   items: Omit<PurchaseItem, "id" | "purchaseId">[]
 }
 
-export const purchaseService = {
+const purchaseServiceDexie = {
   getInvoices: (): Promise<PurchaseInvoice[]> =>
     db.purchase_invoices.orderBy("id").reverse().toArray(),
 
@@ -708,7 +708,7 @@ export const purchaseService = {
 /* Metal Refining (Ghalai)                                            */
 /* ------------------------------------------------------------------ */
 
-export const refiningService = {
+const refiningServiceDexie = {
   getAll: (): Promise<Refining[]> => db.refinings.orderBy("id").reverse().toArray(),
 
   /**
@@ -729,7 +729,7 @@ export const refiningService = {
         await db.items.update(input.sourceItemId, { status: "melted" })
       }
       if (opts.addToStock !== false && input.outputWt > 0) {
-        const created = await itemsService.add({
+        const created = await itemsServiceDexie.add({
           name: opts.outputName ?? `Refined ${input.type} ${input.outputPurity}`,
           type: input.type,
           category: opts.outputCategory ?? "Other",
@@ -754,7 +754,7 @@ export const refiningService = {
 /* Customer Orders (custom-jewellery booking)                         */
 /* ------------------------------------------------------------------ */
 
-export const ordersService = {
+const ordersServiceDexie = {
   getAll: (): Promise<Order[]> => db.orders.orderBy("id").reverse().toArray(),
 
   get: (id: number): Promise<Order | undefined> => db.orders.get(id),
@@ -784,7 +784,7 @@ export const ordersService = {
 /* Gold Saving Schemes                                                */
 /* ------------------------------------------------------------------ */
 
-export const schemesService = {
+const schemesServiceDexie = {
   getSchemes: (): Promise<Scheme[]> => db.schemes.orderBy("name").toArray(),
   getScheme: (id: number): Promise<Scheme | undefined> => db.schemes.get(id),
 
@@ -933,7 +933,7 @@ export interface Gstr1Row {
   type: "B2B" | "B2C"
 }
 
-export const ledgerService = {
+const ledgerServiceDexie = {
   /**
    * Party (customer) ledger: opening balance, each invoice as a debit (sale)
    * with the payment received as a credit, running to a closing balance.
@@ -1205,7 +1205,7 @@ export const ledgerService = {
     const debtors = []
 
     for (const cust of customers) {
-      const outstanding = await customersService.getOutstanding(cust.id!)
+      const outstanding = await customersServiceDexie.getOutstanding(cust.id!)
       if (outstanding > 0) {
         const invoices = await db.sales_invoices.where("customerId").equals(cust.id!).toArray()
         const receipts = await db.receipts.where("customerId").equals(cust.id!).toArray()
@@ -1422,21 +1422,42 @@ const sqlite = usingSqlite ? makeSqliteServices() : null
 const pick = <T>(dexie: T, sqliteSvc: unknown): T =>
   sqlite && sqliteSvc ? ({ ...dexie, ...(sqliteSvc as object) } as T) : dexie
 
+/**
+ * Public per-service exports. These are the DISPATCHED versions: components that
+ * `import { customersService }` etc. get SQLite when the cutover is enabled under
+ * Tauri, and Dexie otherwise — so a single flag flip switches the whole app, not
+ * just the `dbService` namespace. (The concrete Dexie impls are the *Dexie consts
+ * above; systemDb/auth and maintenance stay Dexie.)
+ */
+export const itemsService = pick(itemsServiceDexie, sqlite?.itemsService)
+export const customersService = pick(customersServiceDexie, sqlite?.customersService)
+export const salesService = pick(salesServiceDexie, sqlite?.salesService)
+export const loansService = pick(loansServiceDexie, sqlite?.loansService)
+export const karigarsService = pick(karigarsServiceDexie, sqlite?.karigarsService)
+export const ordersService = pick(ordersServiceDexie, sqlite?.ordersService)
+export const refiningService = pick(refiningServiceDexie, sqlite?.refiningService)
+export const suppliersService = pick(suppliersServiceDexie, sqlite?.suppliersService)
+export const purchaseService = pick(purchaseServiceDexie, sqlite?.purchaseService)
+export const schemesService = pick(schemesServiceDexie, sqlite?.schemesService)
+export const receiptsService = pick(receiptsServiceDexie, sqlite?.receiptsService)
+export const ledgerService = pick(ledgerServiceDexie, sqlite?.ledgerService)
+export const reportsService = pick(reportsServiceDexie, sqlite?.reportsService)
+
 /** Convenience namespace re-export so callers can `import { dbService }`. */
 export const dbService = {
-  items: pick(itemsService, sqlite?.itemsService),
-  customers: pick(customersService, sqlite?.customersService),
-  sales: pick(salesService, sqlite?.salesService),
-  loans: pick(loansService, sqlite?.loansService),
-  karigars: pick(karigarsService, sqlite?.karigarsService),
-  orders: pick(ordersService, sqlite?.ordersService),
-  refining: pick(refiningService, sqlite?.refiningService),
-  suppliers: pick(suppliersService, sqlite?.suppliersService),
-  purchases: pick(purchaseService, sqlite?.purchaseService),
-  schemes: pick(schemesService, sqlite?.schemesService),
-  receipts: pick(receiptsService, sqlite?.receiptsService),
-  ledger: pick(ledgerService, sqlite?.ledgerService),
-  reports: pick(reportsService, sqlite?.reportsService),
+  items: itemsService,
+  customers: customersService,
+  sales: salesService,
+  loans: loansService,
+  karigars: karigarsService,
+  orders: ordersService,
+  refining: refiningService,
+  suppliers: suppliersService,
+  purchases: purchaseService,
+  schemes: schemesService,
+  receipts: receiptsService,
+  ledger: ledgerService,
+  reports: reportsService,
   maintenance: maintenanceService,
   nextSequence: sqlite ? sqlite.nextSequence : nextSequence,
   todayStr,
