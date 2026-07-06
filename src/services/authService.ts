@@ -7,23 +7,14 @@
  */
 
 import { systemDb, type Company, type User, type UserRole } from "@/db/systemDb"
+import { isTauri, systemExecutor } from "@/db/sqlite"
+import { SQLITE_CUTOVER_ENABLED } from "@/db/persistence"
+import { makeSqliteAuth } from "@/services/sqliteAuth"
+import { hashPassword, randomSalt } from "@/services/passwordHash"
+
+export { hashPassword }
 
 const nowIso = () => new Date().toISOString()
-
-const toHex = (buf: ArrayBuffer): string =>
-  [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("")
-
-const randomSalt = (): string => {
-  const a = new Uint8Array(16)
-  crypto.getRandomValues(a)
-  return toHex(a.buffer)
-}
-
-export async function hashPassword(password: string, salt: string): Promise<string> {
-  const data = new TextEncoder().encode(`${salt}:${password}`)
-  const digest = await crypto.subtle.digest("SHA-256", data)
-  return toHex(digest)
-}
 
 /**
  * Memoised so concurrent callers (e.g. React StrictMode double-invoking the
@@ -56,7 +47,7 @@ async function runBootstrap(): Promise<void> {
   }
 }
 
-export const authService = {
+const authServiceDexie = {
   /** First-run bootstrap: ensure a default firm + an owner account exist. */
   bootstrap(): Promise<void> {
     if (!bootstrapPromise) bootstrapPromise = runBootstrap()
@@ -132,3 +123,11 @@ export const authService = {
     return { id: user.id!, username: user.username, name: user.name, role: user.role }
   },
 }
+
+/**
+ * Dispatched auth service: SQLite (shared system DB) when the cutover is enabled
+ * under Tauri, else the Dexie implementation above. Same contract, so LoginPage /
+ * App / Settings are unaffected. Off by default → pure Dexie.
+ */
+export const authService =
+  SQLITE_CUTOVER_ENABLED && isTauri() ? makeSqliteAuth(systemExecutor) : authServiceDexie

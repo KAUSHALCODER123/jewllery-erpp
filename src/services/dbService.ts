@@ -17,7 +17,7 @@
 import { computeLoanDues } from "@/features/girvi/interest"
 import { db, activeCompanyId, JewelDatabase, dbNameForCompany } from "@/db/database"
 import { systemDb, type Company, type User } from "@/db/systemDb"
-import { isTauri } from "@/db/sqlite"
+import { isTauri, systemExecutor } from "@/db/sqlite"
 import { makeSqliteServices } from "@/services/sqliteServices"
 import { SQLITE_CUTOVER_ENABLED } from "@/db/persistence"
 import type {
@@ -1417,7 +1417,7 @@ const usingSqlite = SQLITE_CUTOVER_ENABLED && isTauri()
 
 // Construct the SQLite services only when actually dispatching to them
 // (constructing is side-effect-free, but there's no reason to on web).
-const sqlite = usingSqlite ? makeSqliteServices() : null
+const sqlite = usingSqlite ? makeSqliteServices(undefined, systemExecutor) : null
 
 /**
  * Overlay the SQLite service over its Dexie counterpart when the cutover is on.

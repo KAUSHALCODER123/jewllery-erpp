@@ -95,3 +95,36 @@ export async function queryOne<T>(
   const rows = await query<T>(sql, params)
   return rows[0]
 }
+
+/* ------------------------------------------------------------------ */
+/* System database (global — users + companies, shared across firms)   */
+/* ------------------------------------------------------------------ */
+
+/** System-DB file: one shared file, mirroring the Dexie "jewel_erp_system". */
+export const SYSTEM_DB_FILE = "jewel_erp_system.db"
+
+let _systemDbPromise: Promise<SqlDatabase> | null = null
+
+/** Load (once) the shared system SQLite DB (users + companies). Tauri only. */
+export async function getSystemSqlite(): Promise<SqlDatabase> {
+  if (!isTauri()) {
+    throw new Error("getSystemSqlite() called outside the Tauri desktop runtime")
+  }
+  if (!_systemDbPromise) {
+    _systemDbPromise = (async () => {
+      const mod = await import("@tauri-apps/plugin-sql")
+      const Database = mod.default
+      const db = (await Database.load(`sqlite:${SYSTEM_DB_FILE}`)) as unknown as SqlDatabase
+      const { ensureSchema } = await import("./sqliteMigrate")
+      await ensureSchema(db)
+      return db
+    })()
+  }
+  return _systemDbPromise
+}
+
+/** An executor bound to the shared system DB (for auth + company reads). */
+export const systemExecutor = {
+  run: async (sql: string, params: unknown[] = []) => (await getSystemSqlite()).execute(sql, params),
+  query: async <T>(sql: string, params: unknown[] = []) => (await getSystemSqlite()).select<T[]>(sql, params),
+}

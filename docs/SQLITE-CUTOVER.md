@@ -99,8 +99,15 @@ Flipping blind is the exact risk prior sessions deferred for.
    caches a handle per firm, and applies the schema on first open via
    `ensureSchema` (dynamic `?raw` import of 0001_init.sql, split into statements).
    The Rust migration still covers `jewel_erp.db`; per-firm files are schema-init'd
-   from JS (idempotent). NOTE: `migrateIndexedDbToSqlite()` currently copies only
-   the ACTIVE firm's data — a full all-firms migration is a follow-up.
+   from JS (idempotent).
+10. ~~**systemDb/auth**~~ — **done**: users + companies live in a shared
+    `jewel_erp_system.db` (`getSystemSqlite`/`systemExecutor` in sqlite.ts).
+    `authService` dispatches to `makeSqliteAuth(systemExecutor)` under the flag
+    (src/services/sqliteAuth.ts — bootstrap/login/addUser/setActive/changePassword/
+    company CRUD; crypto shared via src/services/passwordHash.ts, 9 tests).
+    `gstHsnSummary` reads `companies` via the system executor. The migration routes
+    business tables to the firm DB and users/companies to the system DB. Follow-up:
+    it still copies only the ACTIVE firm's business data (all-firms migration).
 
 ## Guardrails
 

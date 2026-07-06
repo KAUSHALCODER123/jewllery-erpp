@@ -97,8 +97,13 @@ export async function nextSequenceRaw(
   return { value, code: `${prefix}${String(value).padStart(pad, "0")}` }
 }
 
-/** Build the SQLite master-data services bound to an executor. */
-export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
+/**
+ * Build the SQLite services bound to an executor. `systemExec` targets the
+ * shared system DB (companies/users) — companies live there, not in the
+ * per-firm business DB — and defaults to `exec` so unit tests can mock both on
+ * one fake.
+ */
+export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec: SqlExecutor = exec) {
   const itemsRepo = makeTableRepo("items", typesFor("items"), exec)
   const customersRepo = makeTableRepo("customers", typesFor("customers"), exec)
   const salesRepo = makeTableRepo("sales_invoices", typesFor("sales_invoices"), exec)
@@ -913,7 +918,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor) {
       qty: number
       netWt: number
     }[]> {
-      const companyRows = await exec.query<{ defaultHsnCode?: string }>(
+      const companyRows = await systemExec.query<{ defaultHsnCode?: string }>(
         "SELECT defaultHsnCode FROM companies WHERE id = $1",
         [activeCompanyId()],
       )

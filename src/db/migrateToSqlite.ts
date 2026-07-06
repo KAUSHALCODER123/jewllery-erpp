@@ -14,7 +14,9 @@
 
 import { db } from "./database"
 import { systemDb } from "./systemDb"
-import { isTauri, run } from "./sqlite"
+import { isTauri, run, systemExecutor } from "./sqlite"
+
+type Runner = (sql: string, params?: unknown[]) => Promise<unknown>
 
 interface TableSpec {
   /** SQLite table name. */
@@ -65,7 +67,7 @@ function coerce(value: unknown, key: string, spec: TableSpec): unknown {
   return value as unknown
 }
 
-async function copyTable(spec: TableSpec): Promise<number> {
+async function copyTable(spec: TableSpec, runner: Runner): Promise<number> {
   const rows = (await spec.load()) as Record<string, unknown>[]
   for (const row of rows) {
     const keys = Object.keys(row)
@@ -73,7 +75,7 @@ async function copyTable(spec: TableSpec): Promise<number> {
     const cols = keys.map((k) => `"${k}"`).join(", ")
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ")
     const values = keys.map((k) => coerce(row[k], k, spec))
-    await run(
+    await runner(
       `INSERT OR REPLACE INTO ${spec.table} (${cols}) VALUES (${placeholders})`,
       values,
     )
@@ -82,14 +84,18 @@ async function copyTable(spec: TableSpec): Promise<number> {
 }
 
 /**
- * Copy all Dexie data into SQLite. Returns per-table row counts. No-op (returns
- * an empty map) when not running under Tauri.
+ * Copy the active firm's Dexie data into SQLite. Business tables go to the
+ * per-firm DB (`run`); users + companies go to the shared system DB
+ * (`systemExecutor.run`). Returns per-table row counts. No-op outside Tauri.
  */
 export async function migrateIndexedDbToSqlite(): Promise<Record<string, number>> {
   if (!isTauri()) return {}
   const result: Record<string, number> = {}
-  for (const spec of [...businessSpecs(), ...systemSpecs()]) {
-    result[spec.table] = await copyTable(spec)
+  for (const spec of businessSpecs()) {
+    result[spec.table] = await copyTable(spec, run)
+  }
+  for (const spec of systemSpecs()) {
+    result[spec.table] = await copyTable(spec, systemExecutor.run)
   }
   return result
 }
