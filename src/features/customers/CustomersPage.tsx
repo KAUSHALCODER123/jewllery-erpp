@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, Search, Pencil, Trash2, Users, MoreHorizontal } from "lucide-react"
+import { Plus, Search, Pencil, Trash2, Users, MoreHorizontal, FileSpreadsheet } from "lucide-react"
 import { toast } from "sonner"
 import type { Customer } from "@/db/types"
 import { customersService, salesService } from "@/services/dbService"
 import { seedCustomersIfEmpty } from "@/db/seed"
 import { formatAmount } from "@/lib/format"
+import { exportObjectsToExcel } from "@/lib/excel"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
@@ -76,15 +77,43 @@ export function CustomersPage() {
     toast.success(n ? `Loaded ${n} demo customers` : "Customers already exist")
   }
 
+  const exportExcel = () => {
+    const rows = filtered.map((c) => ({
+      Name: c.name,
+      Mobile: c.mobile,
+      City: c.city ?? "",
+      Address: c.address ?? "",
+      PAN: c.pan ?? "",
+      Aadhaar: c.aadhaar ?? "",
+      GSTIN: c.gstin ?? "",
+      Email: c.email ?? "",
+      "Opening Balance": c.openingBalance,
+      "Loyalty Points": c.loyaltyPoints,
+      Outstanding: outstandingFor(c),
+    }))
+    if (rows.length === 0) return toast.error("No customers to export")
+    exportObjectsToExcel(
+      `customers-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      "Customers",
+      rows,
+    )
+    toast.success(`Exported ${rows.length} customers to Excel`)
+  }
+
   return (
     <>
       <PageHeader
         title="Customers"
         subtitle={`${filtered.length} customers`}
         actions={
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="size-4" /> New Customer
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={exportExcel}>
+              <FileSpreadsheet className="size-4" /> Excel
+            </Button>
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="size-4" /> New Customer
+            </Button>
+          </div>
         }
       />
 

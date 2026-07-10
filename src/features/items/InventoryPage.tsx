@@ -8,6 +8,7 @@ import {
   PackageOpen,
   MoreHorizontal,
   Barcode as BarcodeIcon,
+  FileSpreadsheet,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Item } from "@/db/types"
@@ -15,6 +16,7 @@ import { itemsService } from "@/services/dbService"
 import { seedItemsIfEmpty } from "@/db/seed"
 import { CATEGORIES, ITEM_STATUS } from "@/lib/constants"
 import { formatAmount, wt } from "@/lib/format"
+import { exportObjectsToExcel } from "@/lib/excel"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
@@ -93,15 +95,45 @@ export function InventoryPage() {
     toast.success(n ? `Loaded ${n} demo items` : "Inventory already has items")
   }
 
+  const exportExcel = () => {
+    const rows = filtered.map((i) => ({
+      Tag: i.tag,
+      Name: i.name,
+      Category: i.category ?? "",
+      Metal: i.type,
+      Purity: i.purity,
+      "Gross Wt (g)": i.grossWt,
+      "Stone Wt (g)": i.stoneWt,
+      "Net Wt (g)": i.netWt,
+      "Making /g": i.makingChargePerGm,
+      HUID: i.huid ?? "",
+      HSN: i.hsn ?? "",
+      Qty: i.quantity ?? 1,
+      Status: i.status ?? "in_stock",
+    }))
+    if (rows.length === 0) return toast.error("No items to export")
+    exportObjectsToExcel(
+      `inventory-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      "Inventory",
+      rows,
+    )
+    toast.success(`Exported ${rows.length} items to Excel`)
+  }
+
   return (
     <>
       <PageHeader
         title="Item Master"
         subtitle={`${totals.count} items · ${wt(totals.grossWt)} g gross · ${wt(totals.netWt)} g net`}
         actions={
-          <Button size="sm" onClick={openCreate}>
-            <Plus className="size-4" /> New Item
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={exportExcel}>
+              <FileSpreadsheet className="size-4" /> Excel
+            </Button>
+            <Button size="sm" onClick={openCreate}>
+              <Plus className="size-4" /> New Item
+            </Button>
+          </div>
         }
       />
 

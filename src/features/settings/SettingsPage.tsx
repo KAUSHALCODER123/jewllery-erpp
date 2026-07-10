@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
 import { useRef } from "react"
-import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload, Printer, AlertTriangle, ShieldAlert, Cloud, FolderOpen } from "lucide-react"
+import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload, Printer, AlertTriangle, ShieldAlert, Cloud, FolderOpen, FileSpreadsheet } from "lucide-react"
 import { toast } from "sonner"
 import type { UserRole } from "@/db/systemDb"
 import { RECEIPT_LANGUAGES, type ReceiptLang } from "@/lib/receiptI18n"
@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { switchCompany, activeCompanyId } from "@/db/database"
 import { downloadText } from "@/lib/csv"
+import { exportWorkbook, type ExcelSheet } from "@/lib/excel"
 import {
   driveBackupSupported,
   getDriveFolder,
@@ -752,8 +753,13 @@ function Backup() {
   const [driveFolder, setDriveFolderState] = useState<string | null>(() => getDriveFolder())
   const [drivingBackup, setDrivingBackup] = useState(false)
 
-  /** Build the backup JSON + filename + record count for the current scope. */
-  const buildBackup = async (): Promise<{ json: string; filename: string; rows: number }> => {
+  /** Build the backup data + filename + record count for the current scope. */
+  const buildBackup = async (): Promise<{
+    data: BackupFile
+    json: string
+    filename: string
+    rows: number
+  }> => {
     let data: BackupFile
     let filename = ""
     const stamp = new Date().toISOString().slice(0, 10)
@@ -761,11 +767,11 @@ function Backup() {
       data = await maintenanceService.exportSystem({
         financialYear: financialYear ?? undefined,
       })
-      filename = `jewel-backup-FULL-SYSTEM-${stamp}.json`
+      filename = `jewel-backup-FULL-SYSTEM-${stamp}`
     } else {
       data = await maintenanceService.exportCompany(activeCompanyId(), financialYear ?? undefined)
       const safe = (company?.name ?? "firm").replace(/[^a-z0-9]+/gi, "-")
-      filename = `jewel-backup-${safe}-${stamp}.json`
+      filename = `jewel-backup-${safe}-${stamp}`
     }
     let rows = 0
     if (data.scope === "system") {
@@ -776,16 +782,51 @@ function Backup() {
     } else {
       rows = Object.values(data.tables || {}).reduce((s, t) => s + t.length, 0)
     }
-    return { json: JSON.stringify(data, null, 2), filename, rows }
+    return { data, json: JSON.stringify(data, null, 2), filename, rows }
+  }
+
+  /** Flatten a backup into one worksheet per table (for the Excel export). */
+  const backupToSheets = (data: BackupFile): ExcelSheet[] => {
+    const sheets: ExcelSheet[] = []
+    if (data.scope === "system") {
+      const nameById = new Map(
+        (data.system?.companies ?? []).map((c) => [c.id, c.name] as const),
+      )
+      for (const cd of data.companiesData ?? []) {
+        const cname = nameById.get(cd.companyId) ?? `firm-${cd.companyId}`
+        for (const [table, tableRows] of Object.entries(cd.tables)) {
+          sheets.push({ name: `${cname}-${table}`, rows: tableRows as Record<string, unknown>[] })
+        }
+      }
+      if (data.system?.companies)
+        sheets.push({ name: "companies", rows: data.system.companies as unknown as Record<string, unknown>[] })
+      if (data.system?.users)
+        sheets.push({ name: "users", rows: data.system.users as unknown as Record<string, unknown>[] })
+    } else {
+      for (const [table, tableRows] of Object.entries(data.tables ?? {})) {
+        sheets.push({ name: table, rows: tableRows as Record<string, unknown>[] })
+      }
+    }
+    return sheets
   }
 
   const doBackup = async () => {
     try {
       const { json, filename, rows } = await buildBackup()
-      downloadText(filename, json, "application/json")
+      downloadText(`${filename}.json`, json, "application/json")
       toast.success(`Backup downloaded · ${rows} records packaged`)
     } catch (err) {
       toast.error(`Backup failed: ${(err as Error).message}`)
+    }
+  }
+
+  const doBackupExcel = async () => {
+    try {
+      const { data, filename, rows } = await buildBackup()
+      const count = exportWorkbook(`${filename}.xlsx`, backupToSheets(data))
+      toast.success(`Excel exported · ${rows} records across ${count} sheet(s)`)
+    } catch (err) {
+      toast.error(`Excel export failed: ${(err as Error).message}`)
     }
   }
 
@@ -808,7 +849,7 @@ function Backup() {
         if (!folder) return
       }
       const { json, filename, rows } = await buildBackup()
-      await writeBackupToDrive(filename, json)
+      await writeBackupToDrive(`${filename}.json`, json)
       toast.success(`Backed up ${rows} records to your Google Drive folder`)
     } catch (err) {
       toast.error(`Drive backup failed: ${(err as Error).message}`)
@@ -924,9 +965,18 @@ function Backup() {
               : `Generates a single firm snapshot of ${company?.name || "the active company"}. This includes POS sales invoices, local items inventory, schemes accounts, and karigar transactions.`}
           </p>
 
-          <Button className="mt-2 bg-amber-500 hover:bg-amber-600 text-white" onClick={() => void doBackup()}>
-            <Download className="size-4" /> Download Backup File
-          </Button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button className="bg-amber-500 hover:bg-amber-600 text-white" onClick={() => void doBackup()}>
+              <Download className="size-4" /> Download JSON Backup
+            </Button>
+            <Button variant="outline" onClick={() => void doBackupExcel()}>
+              <FileSpreadsheet className="size-4" /> Download as Excel
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground leading-relaxed pt-1">
+            JSON is the restorable backup. Excel (.xlsx) is a human-readable
+            workbook — one sheet per table — for viewing or sharing (not for restore).
+          </p>
         </div>
       </div>
 
