@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
 import { useRef } from "react"
-import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload, Printer, AlertTriangle, ShieldAlert } from "lucide-react"
+import { Plus, KeyRound, UserCog, ArrowLeftRight, Download, Upload, Printer, AlertTriangle, ShieldAlert, Cloud, FolderOpen } from "lucide-react"
 import { toast } from "sonner"
 import type { UserRole } from "@/db/systemDb"
 import { RECEIPT_LANGUAGES, type ReceiptLang } from "@/lib/receiptI18n"
@@ -19,6 +19,12 @@ import {
 } from "@/components/ui/dialog"
 import { switchCompany, activeCompanyId } from "@/db/database"
 import { downloadText } from "@/lib/csv"
+import {
+  driveBackupSupported,
+  getDriveFolder,
+  pickDriveFolder,
+  writeBackupToDrive,
+} from "@/services/driveBackup"
 import { useSession } from "@/stores/useSession"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
@@ -743,38 +749,71 @@ function Backup() {
   const [previewBackup, setPreviewBackup] = useState<BackupFile | null>(null)
   const [confirmText, setConfirmText] = useState("")
   const [isRestoring, setIsRestoring] = useState(false)
+  const [driveFolder, setDriveFolderState] = useState<string | null>(() => getDriveFolder())
+  const [drivingBackup, setDrivingBackup] = useState(false)
+
+  /** Build the backup JSON + filename + record count for the current scope. */
+  const buildBackup = async (): Promise<{ json: string; filename: string; rows: number }> => {
+    let data: BackupFile
+    let filename = ""
+    const stamp = new Date().toISOString().slice(0, 10)
+    if (exportScope === "system") {
+      data = await maintenanceService.exportSystem({
+        financialYear: financialYear ?? undefined,
+      })
+      filename = `jewel-backup-FULL-SYSTEM-${stamp}.json`
+    } else {
+      data = await maintenanceService.exportCompany(activeCompanyId(), financialYear ?? undefined)
+      const safe = (company?.name ?? "firm").replace(/[^a-z0-9]+/gi, "-")
+      filename = `jewel-backup-${safe}-${stamp}.json`
+    }
+    let rows = 0
+    if (data.scope === "system") {
+      rows = (data.companiesData ?? []).reduce(
+        (sum, cData) => sum + Object.values(cData.tables).reduce((s, t) => s + t.length, 0),
+        0,
+      )
+    } else {
+      rows = Object.values(data.tables || {}).reduce((s, t) => s + t.length, 0)
+    }
+    return { json: JSON.stringify(data, null, 2), filename, rows }
+  }
 
   const doBackup = async () => {
     try {
-      let data: BackupFile
-      let filename = ""
-
-      const stamp = new Date().toISOString().slice(0, 10)
-      if (exportScope === "system") {
-        data = await maintenanceService.exportSystem({
-          financialYear: financialYear ?? undefined,
-        })
-        filename = `jewel-backup-FULL-SYSTEM-${stamp}.json`
-      } else {
-        data = await maintenanceService.exportCompany(activeCompanyId(), financialYear ?? undefined)
-        const safe = (company?.name ?? "firm").replace(/[^a-z0-9]+/gi, "-")
-        filename = `jewel-backup-${safe}-${stamp}.json`
-      }
-
-      downloadText(filename, JSON.stringify(data, null, 2), "application/json")
-
-      let rows = 0
-      if (data.scope === "system") {
-        rows = (data.companiesData ?? []).reduce(
-          (sum, cData) => sum + Object.values(cData.tables).reduce((s, t) => s + t.length, 0),
-          0,
-        )
-      } else {
-        rows = Object.values(data.tables || {}).reduce((s, t) => s + t.length, 0)
-      }
+      const { json, filename, rows } = await buildBackup()
+      downloadText(filename, json, "application/json")
       toast.success(`Backup downloaded · ${rows} records packaged`)
     } catch (err) {
       toast.error(`Backup failed: ${(err as Error).message}`)
+    }
+  }
+
+  const chooseDriveFolder = async () => {
+    try {
+      const folder = await pickDriveFolder()
+      if (folder) setDriveFolderState(folder)
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
+  const doBackupToDrive = async () => {
+    setDrivingBackup(true)
+    try {
+      let folder = getDriveFolder()
+      if (!folder) {
+        folder = await pickDriveFolder()
+        setDriveFolderState(folder)
+        if (!folder) return
+      }
+      const { json, filename, rows } = await buildBackup()
+      await writeBackupToDrive(filename, json)
+      toast.success(`Backed up ${rows} records to your Google Drive folder`)
+    } catch (err) {
+      toast.error(`Drive backup failed: ${(err as Error).message}`)
+    } finally {
+      setDrivingBackup(false)
     }
   }
 
@@ -888,6 +927,48 @@ function Backup() {
           <Button className="mt-2 bg-amber-500 hover:bg-amber-600 text-white" onClick={() => void doBackup()}>
             <Download className="size-4" /> Download Backup File
           </Button>
+        </div>
+      </div>
+
+      {/* Google Drive (sync-folder) backup */}
+      <div className="rounded-lg border bg-card p-5 shadow-xs">
+        <h3 className="flex items-center gap-1.5 text-sm font-semibold border-b pb-2 mb-4">
+          <Cloud className="size-4 text-emerald-500" /> Google Drive Backup
+        </h3>
+
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Save the backup straight into a folder the Google Drive desktop app syncs
+            (e.g. <span className="font-mono text-[11px]">G:\My Drive\Jewel-ERP-Backups</span>).
+            Drive uploads it to the cloud automatically — no login required. Uses the
+            scope selected above.
+          </p>
+
+          {!driveBackupSupported() ? (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-600">
+              Available only in the installed desktop app (it writes to your local
+              Google Drive folder). The browser version can only download the file.
+            </p>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate font-mono">
+                  {driveFolder || "No folder chosen yet"}
+                </span>
+                <Button variant="outline" size="xs" onClick={() => void chooseDriveFolder()}>
+                  {driveFolder ? "Change" : "Choose folder"}
+                </Button>
+              </div>
+              <Button
+                className="mt-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                disabled={drivingBackup}
+                onClick={() => void doBackupToDrive()}
+              >
+                <Cloud className="size-4" /> {drivingBackup ? "Backing up…" : "Back up to Drive folder now"}
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
