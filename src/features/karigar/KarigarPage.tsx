@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
 import { Plus, Hammer, ArrowDownToLine, UserPlus } from "lucide-react"
 import { toast } from "sonner"
@@ -291,6 +291,19 @@ function IssueJobDialog({
   const [description, setDescription] = useState("")
   const [orderId, setOrderId] = useState<string>("none")
   const openOrders = useLiveData(() => ordersService.getOpen(), [], [])
+
+  // Reset the form each time the dialog opens (matches the Purchase/Loan dialogs)
+  // so a cancelled entry never lingers into the next issue.
+  useEffect(() => {
+    if (open) {
+      setKarigarId("")
+      setDate(todayStr())
+      setMetalWt(0)
+      setWastage(0)
+      setDescription("")
+      setOrderId("none")
+    }
+  }, [open])
 
   const save = async () => {
     if (!karigarId) return toast.error("Select a karigar")

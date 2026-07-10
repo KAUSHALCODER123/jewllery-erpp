@@ -161,9 +161,8 @@ export function LoanFormDialog({
             </div>
           </div>
 
-          {/* Pledged items + collateral image + thumbprint */}
-          <div className="grid grid-cols-4 gap-3">
-            <div className="col-span-2">
+          {/* Pledged items — full width so the columns breathe */}
+          <div>
               <div className="mb-1 flex items-center justify-between">
                 <Label className="text-xs text-muted-foreground">
                   Pledged Items
@@ -256,14 +255,16 @@ export function LoanFormDialog({
                   </tfoot>
                 </table>
               </div>
-            </div>
+          </div>
 
+          {/* Collateral photo + borrower thumbprint — their own compact row */}
+          <div className="grid grid-cols-2 gap-3 sm:max-w-md">
             {/* Collateral photo */}
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">
                 Collateral Photo
               </Label>
-              <label className="flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed bg-muted/30 hover:bg-muted">
+              <label className="flex h-32 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed bg-muted/30 hover:bg-muted">
                 {image ? (
                   <img
                     src={image}
@@ -306,7 +307,7 @@ export function LoanFormDialog({
               <Label className="text-xs text-muted-foreground">
                 Borrower Thumbprint
               </Label>
-              <label className="flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed bg-muted/30 hover:bg-muted">
+              <label className="flex h-32 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed bg-muted/30 hover:bg-muted">
                 {thumbprint ? (
                   <img
                     src={thumbprint}

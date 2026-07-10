@@ -223,8 +223,8 @@ export function PurchaseFormDialog({
                 <Plus className="size-4" /> Row
               </Button>
             </div>
-            <div className="rounded-md border">
-              <table className="w-full border-collapse text-sm">
+            <div className="overflow-x-auto rounded-md border">
+              <table className="w-full min-w-[760px] border-collapse text-sm">
                 <thead className="bg-muted/60 text-xs text-muted-foreground">
                   <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:text-left [&>th]:font-medium">
                     <th>Description</th>
@@ -302,6 +302,7 @@ export function PurchaseFormDialog({
                           checked={r.addToStock}
                           onChange={(e) => update(r.id, { addToStock: e.target.checked })}
                           aria-label="Add to stock"
+                          className="size-4 cursor-pointer accent-primary"
                         />
                       </td>
                       <td>
