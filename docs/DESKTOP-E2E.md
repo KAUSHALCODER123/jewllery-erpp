@@ -10,13 +10,25 @@ It is a **UI smoke** (login → dashboard → navigate). Production builds omit 
 DEV-only `window.__jewel` bridge, so there is no service-layer access here — the
 `e2e/api` Playwright tests cover that layer.
 
-## Why it doesn't run on the primary dev box
+## Running on the primary dev box
 
-This machine's WDAC policy blocks binaries that load/execute from the Temp dir,
-so `cargo install tauri-driver` fails (`os error 4551`). Run this harness on an
-**unrestricted Windows machine or CI** (see the workflow below). The release
-binary itself builds fine in place (`cargo build --release`), so only the
-`tauri-driver` tooling is gated.
+This was long assumed to be blocked: the machine's WDAC policy blocks binaries
+that **execute from the Temp dir**, and `cargo install tauri-driver` was thought
+to trip it (`os error 4551`). In practice it does **not** — `cargo install`
+compiles the crate and installs the finished binary to `~/.cargo/bin`
+(`%USERPROFILE%\.cargo\bin`), which is outside Temp and runs fine. The WDAC block
+only bites *prebuilt* binaries that download-and-run from Temp.
+
+So the full harness **does** run locally once these are in place (all verified
+working on the dev box):
+
+1. `cargo install tauri-driver --locked` → `~/.cargo/bin/tauri-driver.exe`
+2. `msedgedriver.exe` matching the installed WebView2 runtime (see Prerequisites),
+   placed on `PATH` in a **non-Temp** dir — `~/.cargo/bin` works well
+3. `selenium-webdriver` (now pinned as a devDep, so `npm install` covers it)
+
+CI (`.github/workflows/desktop-e2e.yml`, windows-latest) remains the canonical
+home, but local runs work too.
 
 ## Prerequisites (Windows)
 
@@ -33,10 +45,8 @@ binary itself builds fine in place (`cargo build --release`), so only the
    Edge WebView2 runtime — download from
    https://developer.microsoft.com/microsoft-edge/tools/webdriver/ and put it on
    `PATH`. (Tauri on Windows renders via WebView2, which is Edge/Chromium.)
-4. **Node client**:
-   ```bash
-   npm i -D selenium-webdriver
-   ```
+4. **Node client** — `selenium-webdriver`, now pinned as a devDep, so a plain
+   `npm install` installs it (no separate step needed).
 
 ## Run
 

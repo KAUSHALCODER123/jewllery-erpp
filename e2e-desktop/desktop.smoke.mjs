@@ -135,22 +135,35 @@ async function main() {
       TIMEOUT,
     )
     await input.sendKeys(SALE_CUSTOMER)
+    // The label is "Add “<name>” as walk-in customer" — the {query} interpolation
+    // splits it across text nodes, so match the option's full string value (.)
+    // rather than its first text node (text()).
     const addItem = await driver.wait(
-      until.elementLocated(By.xpath('//*[contains(text(), "as walk-in customer")]')),
+      until.elementLocated(
+        By.xpath('//*[@role="option" and contains(., "as walk-in customer")]'),
+      ),
       TIMEOUT,
     )
     await addItem.click()
   })
 
   await step("take full cash and Save & Print", async () => {
+    // The success toast from adding the walk-in customer floats bottom-right over
+    // the pay buttons and can intercept the click — wait for toasts to clear.
+    await driver.wait(
+      async () => (await driver.findElements(By.css("[data-sonner-toast]"))).length === 0,
+      TIMEOUT,
+    )
     await (await driver.findElement(By.xpath('//button[normalize-space()="full"]'))).click()
     await (await driver.findElement(By.xpath('//button[contains(., "Save & Print")]'))).click()
   })
 
   await step("SQLite round-trip: invoice minted, then customer read back", async () => {
     // createInvoice minted an INV number from the (SQLite) counter and printed it.
+    // Heading is "Invoice {invoiceNo}" — the interpolation splits it across text
+    // nodes, so match the span's string value (.) not its first text node.
     await driver.wait(
-      until.elementLocated(By.xpath('//*[contains(text(), "Invoice INV")]')),
+      until.elementLocated(By.xpath('//span[contains(., "Invoice INV")]')),
       TIMEOUT,
     )
     // Close the receipt and open Customers — a fresh mount re-reads from SQLite,
