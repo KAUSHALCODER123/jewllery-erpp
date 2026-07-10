@@ -361,5 +361,6 @@ CREATE TABLE IF NOT EXISTS companies (
   templateInvoice     TEXT,
   templateDues        TEXT,
   templateGirvi       TEXT,
-  templateScheme      TEXT
+  templateScheme      TEXT,
+  receiptLayout       TEXT
 );

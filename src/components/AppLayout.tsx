@@ -12,6 +12,7 @@ import {
   Truck,
   PiggyBank,
   FileBarChart,
+  LayoutTemplate,
   Settings,
   LogOut,
   HandCoins,
@@ -46,6 +47,7 @@ const NAV: NavItem[] = [
   { to: "/karigar", label: "Karigar", icon: Hammer },
   { to: "/daybook", label: "Day Book", icon: BookOpen },
   { to: "/reports", label: "Reports & GST", icon: FileBarChart },
+  { to: "/receipt-designer", label: "Receipt Designer", icon: LayoutTemplate },
   { to: "/settings", label: "Settings", icon: Settings },
 ]
 

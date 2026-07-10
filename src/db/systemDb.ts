@@ -55,6 +55,8 @@ export interface Company {
   templateDues?: string
   templateGirvi?: string
   templateScheme?: string
+  /** JSON-encoded printed-receipt layout (see features/receipt-designer/layout.ts). */
+  receiptLayout?: string
 }
 
 export class SystemDatabase extends Dexie {

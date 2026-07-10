@@ -29,6 +29,7 @@ const ReceiptPage = lazy(() => named(import("@/features/receipt/ReceiptPage"), "
 const StockAuditPage = lazy(() => named(import("@/features/audit/StockAuditPage"), "StockAuditPage"))
 const RefiningPage = lazy(() => named(import("@/features/refining/RefiningPage"), "RefiningPage"))
 const SettingsPage = lazy(() => named(import("@/features/settings/SettingsPage"), "SettingsPage"))
+const ReceiptDesignerPage = lazy(() => named(import("@/features/receipt-designer/ReceiptDesignerPage"), "ReceiptDesignerPage"))
 
 function App() {
   const [ready, setReady] = useState(false)
@@ -86,6 +87,7 @@ function App() {
               <Route path="karigar" element={<KarigarPage />} />
               <Route path="daybook" element={<DayBookPage />} />
               <Route path="reports" element={<ReportsPage />} />
+              <Route path="receipt-designer" element={<ReceiptDesignerPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>
