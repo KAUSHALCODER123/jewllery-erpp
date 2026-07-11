@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, Hammer, ArrowDownToLine, UserPlus } from "lucide-react"
+import { Plus, Hammer, ArrowDownToLine, UserPlus, Search } from "lucide-react"
 import { toast } from "sonner"
 import type { Karigar, KarigarJob } from "@/db/types"
 import { karigarsService, ordersService, todayStr } from "@/services/dbService"
@@ -45,6 +45,8 @@ export function KarigarPage() {
   const [addOpen, setAddOpen] = useState(false)
   const [issueOpen, setIssueOpen] = useState(false)
   const [receiving, setReceiving] = useState<KarigarJob | null>(null)
+  const [jobSearch, setJobSearch] = useState("")
+  const [jobStatus, setJobStatus] = useState("all")
 
   const karigars = useLiveData(() => karigarsService.getAll(), [], undefined)
   const jobs = useLiveData(() => karigarsService.getJobs(), [], [])
@@ -53,6 +55,19 @@ export function KarigarPage() {
     for (const k of karigars ?? []) m.set(k.id!, k.name)
     return m
   }, [karigars])
+
+  const filteredJobs = useMemo(() => {
+    const q = jobSearch.trim().toLowerCase()
+    return jobs.filter((j) => {
+      const okStatus = jobStatus === "all" || j.status === jobStatus
+      const okText =
+        !q ||
+        j.jobNo.toLowerCase().includes(q) ||
+        (karigarName.get(j.karigarId)?.toLowerCase().includes(q) ?? false) ||
+        (j.description?.toLowerCase().includes(q) ?? false)
+      return okStatus && okText
+    })
+  }, [jobs, jobSearch, jobStatus, karigarName])
 
   return (
     <>
@@ -132,9 +147,29 @@ export function KarigarPage() {
 
             {/* Jobs */}
             <section>
-              <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
-                Jobs
-              </h2>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <h2 className="text-xs font-semibold uppercase text-muted-foreground">Jobs</h2>
+                <div className="relative ml-auto w-56">
+                  <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={jobSearch}
+                    onChange={(e) => setJobSearch(e.target.value)}
+                    placeholder="Search job / karigar / work"
+                    className="h-8 pl-8"
+                  />
+                </div>
+                <Select value={jobStatus} onValueChange={setJobStatus}>
+                  <SelectTrigger size="sm" className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="issued">Issued</SelectItem>
+                    <SelectItem value="received">Received</SelectItem>
+                    <SelectItem value="closed">Closed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
@@ -151,17 +186,17 @@ export function KarigarPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {jobs.length === 0 && (
+                    {filteredJobs.length === 0 && (
                       <TableRow>
                         <TableCell
                           colSpan={9}
                           className="py-8 text-center text-muted-foreground"
                         >
-                          No jobs yet. Issue metal to a karigar.
+                          {jobs.length === 0 ? "No jobs yet. Issue metal to a karigar." : "No jobs match your filters."}
                         </TableCell>
                       </TableRow>
                     )}
-                    {jobs.map((j) => {
+                    {filteredJobs.map((j) => {
                       const st = JOB_STATUS[j.status]
                       return (
                         <TableRow key={j.id}>

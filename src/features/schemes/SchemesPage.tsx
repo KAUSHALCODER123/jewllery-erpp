@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, PiggyBank, IndianRupee, CheckCircle2, Eye, Printer, MessageCircle } from "lucide-react"
+import { Plus, PiggyBank, IndianRupee, CheckCircle2, Eye, Printer, MessageCircle, Search } from "lucide-react"
 import { toast } from "sonner"
 import type { Scheme, SchemeAccount, SchemePayment, PaymentMode } from "@/db/types"
 import { schemesService, customersService, todayStr } from "@/services/dbService"
@@ -49,6 +49,8 @@ export function SchemesPage() {
   const [detailAccount, setDetailAccount] = useState<SchemeAccount | null>(null)
   const [printPayment, setPrintPayment] = useState<SchemePayment | null>(null)
   const [printAccount, setPrintAccount] = useState<SchemeAccount | null>(null)
+  const [acctSearch, setAcctSearch] = useState("")
+  const [acctStatus, setAcctStatus] = useState("all")
 
   const schemes = useLiveData(() => schemesService.getSchemes(), [], [])
   const customers = useLiveData(() => customersService.getAll(), [], [])
@@ -76,6 +78,18 @@ export function SchemesPage() {
     for (const c of customers) m.set(c.id!, c.name)
     return m
   }, [customers])
+
+  const filteredAccounts = useMemo(() => {
+    const q = acctSearch.trim().toLowerCase()
+    return accounts.filter((a) => {
+      const okStatus = acctStatus === "all" || a.status === acctStatus
+      const okText =
+        !q ||
+        a.accountNo.toLowerCase().includes(q) ||
+        (custName.get(a.customerId)?.toLowerCase().includes(q) ?? false)
+      return okStatus && okText
+    })
+  }, [accounts, acctSearch, acctStatus, custName])
 
   return (
     <>
@@ -127,21 +141,52 @@ export function SchemesPage() {
               )}
             </div>
           ) : (
-            <Table>
-              <TableHeader className="sticky top-0 bg-card">
-                <TableRow>
-                  <TableHead className="w-24">Account</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Scheme</TableHead>
-                  <TableHead className="w-24">Start</TableHead>
-                  <TableHead className="w-28 text-right">Paid</TableHead>
-                  <TableHead className="w-28 text-right">Progress</TableHead>
-                  <TableHead className="w-24">Status</TableHead>
-                  <TableHead className="w-28" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {accounts.map((a) => {
+            <div className="space-y-3 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative w-56">
+                  <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={acctSearch}
+                    onChange={(e) => setAcctSearch(e.target.value)}
+                    placeholder="Search account / customer"
+                    className="h-8 pl-8"
+                  />
+                </div>
+                <Select value={acctStatus} onValueChange={setAcctStatus}>
+                  <SelectTrigger size="sm" className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All statuses</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="matured">Matured</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="ml-auto text-xs text-muted-foreground">{filteredAccounts.length} shown</span>
+              </div>
+              <div className="overflow-x-auto rounded-xl border bg-card">
+                <Table>
+                  <TableHeader className="sticky top-0 bg-card">
+                    <TableRow>
+                      <TableHead className="w-24">Account</TableHead>
+                      <TableHead>Customer</TableHead>
+                      <TableHead>Scheme</TableHead>
+                      <TableHead className="w-24">Start</TableHead>
+                      <TableHead className="w-28 text-right">Paid</TableHead>
+                      <TableHead className="w-28 text-right">Progress</TableHead>
+                      <TableHead className="w-24">Status</TableHead>
+                      <TableHead className="w-28" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredAccounts.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                          No accounts match your filters.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {filteredAccounts.map((a) => {
                   const sch = schemeById.get(a.schemeId)
                   const done = sch ? a.count >= sch.durationMonths : false
                   return (
@@ -220,8 +265,10 @@ export function SchemesPage() {
                     </TableRow>
                   )
                 })}
-              </TableBody>
-            </Table>
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           )}
         </TabsContent>
 

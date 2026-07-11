@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, Landmark, Receipt, Lock, Eye } from "lucide-react"
+import { Plus, Landmark, Receipt, Lock, Eye, Search } from "lucide-react"
 import { toast } from "sonner"
 import type { Loan, LoanPayment } from "@/db/types"
 import { loansService, customersService, todayStr } from "@/services/dbService"
@@ -34,6 +34,7 @@ import { LoanDetailsDialog } from "./LoanDetailsDialog"
 
 export function GirviPage() {
   const [tab, setTab] = useState<"open" | "all">("open")
+  const [search, setSearch] = useState("")
   const [formOpen, setFormOpen] = useState(false)
   const [pavati, setPavati] = useState<Loan | null>(null)
   const [closing, setClosing] = useState<Loan | null>(null)
@@ -43,9 +44,9 @@ export function GirviPage() {
   const customers = useLiveData(() => customersService.getAll(), [], [])
   const payments = useLiveData(() => loansService.getAllPayments(), [], [])
 
-  const custName = useMemo(() => {
-    const m = new Map<number, string>()
-    for (const c of customers) m.set(c.id!, c.name)
+  const custInfo = useMemo(() => {
+    const m = new Map<number, { name: string; mobile?: string }>()
+    for (const c of customers) m.set(c.id!, { name: c.name, mobile: c.mobile })
     return m
   }, [customers])
 
@@ -59,7 +60,18 @@ export function GirviPage() {
     return m
   }, [payments])
 
-  const visible = (loans ?? []).filter((l) => (tab === "open" ? !l.isClosed : true))
+  const q = search.trim().toLowerCase()
+  const visible = (loans ?? [])
+    .filter((l) => (tab === "open" ? !l.isClosed : true))
+    .filter((l) => {
+      if (!q) return true
+      const info = custInfo.get(l.customerId)
+      return (
+        l.loanNo.toLowerCase().includes(q) ||
+        (info?.name.toLowerCase().includes(q) ?? false) ||
+        (info?.mobile?.includes(q) ?? false)
+      )
+    })
 
   return (
     <>
@@ -73,13 +85,22 @@ export function GirviPage() {
         }
       />
 
-      <div className="border-b px-4 py-2">
+      <div className="flex items-center gap-2 border-b px-4 py-2">
         <Tabs value={tab} onValueChange={(v) => setTab(v as "open" | "all")}>
           <TabsList>
             <TabsTrigger value="open">Open</TabsTrigger>
             <TabsTrigger value="all">All</TabsTrigger>
           </TabsList>
         </Tabs>
+        <div className="relative ml-auto w-60">
+          <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search loan / customer / mobile"
+            className="h-8 pl-8"
+          />
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto">
@@ -107,13 +128,20 @@ export function GirviPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
+              {visible.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+                    No loans match your search.
+                  </TableCell>
+                </TableRow>
+              )}
               {visible.map((l) => {
                 const loanPayments = paymentsByLoanId.get(l.id!) || []
                 const dues = computeLoanDues(l, loanPayments, todayStr())
                 return (
                   <TableRow key={l.id}>
                     <TableCell className="font-medium">{l.loanNo}</TableCell>
-                    <TableCell>{custName.get(l.customerId) ?? "—"}</TableCell>
+                    <TableCell>{custInfo.get(l.customerId)?.name ?? "—"}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {formatDate(l.date)}
                     </TableCell>
