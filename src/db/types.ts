@@ -238,13 +238,41 @@ export interface Supplier {
   id?: number
   name: string
   mobile?: string
+  email?: string
   gstin?: string
+  pan?: string
   address?: string
   city?: string
+  state?: string
+  bankName?: string
+  bankAccount?: string
+  bankIfsc?: string
+  /** Max credit the shop is comfortable owing this vendor. */
+  creditLimit?: number
+  /** Free-text terms, e.g. "30 days", "on delivery". */
+  paymentTerms?: string
+  /** 0–5 vendor rating. */
+  rating?: number
+  status?: "active" | "inactive"
+  notes?: string
   /** Positive = shop owes the supplier. */
   openingBalance: number
   createdAt?: string
   updatedAt?: string
+}
+
+/** A payment made to a vendor — against a specific purchase or on account. */
+export interface PurchasePayment {
+  id?: number
+  supplierId: number
+  /** The purchase this payment settles; absent = on-account payment. */
+  purchaseId?: number
+  date: string
+  amount: number
+  mode: PaymentMode
+  notes?: string
+  createdBy?: string
+  createdAt?: string
 }
 
 /** Header of a purchase from a supplier. */

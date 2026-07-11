@@ -37,6 +37,7 @@ import type {
   BullionStock,
   InventoryLedger,
   OrderPayment,
+  PurchasePayment,
   Refining,
   Refiner,
   SalesInvoice,
@@ -659,17 +660,49 @@ const suppliersServiceDexie = {
 
   remove: (id: number): Promise<void> => db.suppliers.delete(id),
 
-  /** Amount still owed to a supplier = opening + unpaid purchase balances. */
+  /** Amount still owed to a supplier = opening + unpaid purchase balances − on-account payments. */
   async getOutstanding(supplierId: number): Promise<number> {
     const supplier = await db.suppliers.get(supplierId)
     if (!supplier) return 0
-    const purchases = await db.purchase_invoices
-      .where("supplierId")
-      .equals(supplierId)
-      .toArray()
+    const purchases = await db.purchase_invoices.where("supplierId").equals(supplierId).toArray()
+    const payments = await db.purchase_payments.where("supplierId").equals(supplierId).toArray()
+    const onAccount = payments.filter((p) => !p.purchaseId).reduce((s, p) => s + p.amount, 0)
     return round(
-      supplier.openingBalance + purchases.reduce((s, p) => s + p.balance, 0),
+      supplier.openingBalance + purchases.reduce((s, p) => s + p.balance, 0) - onAccount,
     )
+  },
+}
+
+/* ------------------------------------------------------------------ */
+/* Vendor payments (against a purchase or on account)                 */
+/* ------------------------------------------------------------------ */
+
+const purchasePaymentsServiceDexie = {
+  getAll: (): Promise<PurchasePayment[]> => db.purchase_payments.toArray(),
+
+  getBySupplier: (supplierId: number): Promise<PurchasePayment[]> =>
+    db.purchase_payments.where("supplierId").equals(supplierId).sortBy("id"),
+
+  getByPurchase: (purchaseId: number): Promise<PurchasePayment[]> =>
+    db.purchase_payments.where("purchaseId").equals(purchaseId).toArray(),
+
+  /** Record a vendor payment; if tied to a purchase, settle that invoice's balance. Atomic. */
+  async add(input: Omit<PurchasePayment, "id" | "createdAt">): Promise<PurchasePayment> {
+    return db.transaction("rw", [db.purchase_payments, db.purchase_invoices], async () => {
+      const pay: PurchasePayment = { ...input, createdAt: nowIso() }
+      const id = await db.purchase_payments.add(pay)
+      if (input.purchaseId) {
+        const inv = await db.purchase_invoices.get(input.purchaseId)
+        if (inv) {
+          const amountPaid = round(inv.amountPaid + input.amount)
+          await db.purchase_invoices.update(input.purchaseId, {
+            amountPaid,
+            balance: round(inv.netAmount - amountPaid),
+          })
+        }
+      }
+      return { ...pay, id }
+    })
   },
 }
 
@@ -1713,6 +1746,7 @@ export const refiningService = pick(refiningServiceDexie, sqlite?.refiningServic
 export const refinersService = pick(refinersServiceDexie, sqlite?.refinersService)
 export const suppliersService = pick(suppliersServiceDexie, sqlite?.suppliersService)
 export const purchaseService = pick(purchaseServiceDexie, sqlite?.purchaseService)
+export const purchasePaymentsService = pick(purchasePaymentsServiceDexie, sqlite?.purchasePaymentsService)
 export const schemesService = pick(schemesServiceDexie, sqlite?.schemesService)
 export const receiptsService = pick(receiptsServiceDexie, sqlite?.receiptsService)
 export const ledgerService = pick(ledgerServiceDexie, sqlite?.ledgerService)

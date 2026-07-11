@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, Truck, Pencil, UserPlus } from "lucide-react"
+import { Plus, Truck, Pencil, UserPlus, MoreHorizontal, BookOpen, IndianRupee } from "lucide-react"
 import type { Supplier } from "@/db/types"
-import { purchaseService, suppliersService } from "@/services/dbService"
+import { purchaseService, suppliersService, purchasePaymentsService } from "@/services/dbService"
 import { formatAmount, formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
@@ -16,22 +16,43 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { PurchaseFormDialog } from "./PurchaseFormDialog"
 import { SupplierFormDialog } from "./SupplierFormDialog"
+import { VendorPaymentDialog } from "./VendorPaymentDialog"
+import { VendorLedgerDialog } from "./VendorLedgerDialog"
 
 export function PurchasePage() {
   const [tab, setTab] = useState("purchases")
   const [purchaseOpen, setPurchaseOpen] = useState(false)
   const [supplierOpen, setSupplierOpen] = useState(false)
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null)
+  const [payVendor, setPayVendor] = useState<Supplier | null>(null)
+  const [ledgerVendor, setLedgerVendor] = useState<Supplier | null>(null)
 
   const purchases = useLiveData(() => purchaseService.getInvoices(), [], [])
   const suppliers = useLiveData(() => suppliersService.getAll(), [], [])
-  const supName = useMemo(() => {
-    const m = new Map<number, string>()
-    for (const s of suppliers) m.set(s.id!, s.name)
+  const payments = useLiveData(() => purchasePaymentsService.getAll(), [], [])
+  const supById = useMemo(() => {
+    const m = new Map<number, Supplier>()
+    for (const s of suppliers) m.set(s.id!, s)
     return m
   }, [suppliers])
+  const supName = (id: number) => supById.get(id)?.name ?? "—"
+
+  // Outstanding = opening + unpaid purchase balances − on-account payments.
+  const outstanding = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const s of suppliers) m.set(s.id!, s.openingBalance)
+    for (const p of purchases) m.set(p.supplierId, (m.get(p.supplierId) ?? 0) + p.balance)
+    for (const pay of payments) if (!pay.purchaseId) m.set(pay.supplierId, (m.get(pay.supplierId) ?? 0) - pay.amount)
+    return m
+  }, [suppliers, purchases, payments])
 
   return (
     <>
@@ -88,13 +109,14 @@ export function PurchasePage() {
                   <TableHead className="w-28 text-right">Net</TableHead>
                   <TableHead className="w-24 text-right">Paid</TableHead>
                   <TableHead className="w-28 text-right">Balance</TableHead>
+                  <TableHead className="w-16 text-right" />
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {purchases.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.purchaseNo}</TableCell>
-                    <TableCell>{supName.get(p.supplierId) ?? "—"}</TableCell>
+                    <TableCell>{supName(p.supplierId)}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {p.billNo ?? "—"}
                     </TableCell>
@@ -117,6 +139,18 @@ export function PurchasePage() {
                       )}
                     >
                       {p.balance > 0 ? formatAmount(p.balance) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {p.balance > 0 && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs font-medium text-primary hover:text-primary/80"
+                          onClick={() => setPayVendor(supById.get(p.supplierId) ?? null)}
+                        >
+                          Pay
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -144,14 +178,21 @@ export function PurchasePage() {
                   <TableHead className="w-32">Mobile</TableHead>
                   <TableHead className="w-28">City</TableHead>
                   <TableHead className="w-40">GSTIN</TableHead>
-                  <TableHead className="w-28 text-right">Opening Bal</TableHead>
+                  <TableHead className="w-28 text-right">Outstanding</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {suppliers.map((s) => (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-medium">{s.name}</TableCell>
+                {suppliers.map((s) => {
+                  const out = outstanding.get(s.id!) ?? 0
+                  return (
+                  <TableRow key={s.id} className="cursor-pointer" onClick={() => setLedgerVendor(s)}>
+                    <TableCell className="font-medium">
+                      {s.name}
+                      {s.status === "inactive" && (
+                        <span className="ml-1.5 rounded bg-muted px-1 py-0.5 text-[10px] text-muted-foreground">inactive</span>
+                      )}
+                    </TableCell>
                     <TableCell className="tabular text-muted-foreground">
                       {s.mobile ?? "—"}
                     </TableCell>
@@ -161,26 +202,37 @@ export function PurchasePage() {
                     <TableCell className="text-xs text-muted-foreground">
                       {s.gstin ?? "—"}
                     </TableCell>
-                    <TableCell className="text-right tabular">
-                      {formatAmount(s.openingBalance)}
+                    <TableCell className={cn("text-right tabular", out > 0 && "text-destructive")}>
+                      {out !== 0 ? formatAmount(out) : "—"}
                     </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="size-7"
-                        aria-label="Edit supplier"
-                        title="Edit supplier"
-                        onClick={() => {
-                          setEditSupplier(s)
-                          setSupplierOpen(true)
-                        }}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="size-7" aria-label="Vendor actions">
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setLedgerVendor(s)}>
+                            <BookOpen className="size-4" /> Ledger
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setPayVendor(s)}>
+                            <IndianRupee className="size-4" /> Record Payment
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setEditSupplier(s)
+                              setSupplierOpen(true)
+                            }}
+                          >
+                            <Pencil className="size-4" /> Edit
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                  )
+                })}
               </TableBody>
             </Table>
           )}
@@ -192,6 +244,15 @@ export function PurchasePage() {
         open={supplierOpen}
         onOpenChange={setSupplierOpen}
         editSupplier={editSupplier}
+      />
+      <VendorPaymentDialog vendor={payVendor} onOpenChange={(o) => !o && setPayVendor(null)} />
+      <VendorLedgerDialog
+        vendor={ledgerVendor}
+        onOpenChange={(o) => !o && setLedgerVendor(null)}
+        onPay={(v) => {
+          setLedgerVendor(null)
+          setPayVendor(v)
+        }}
       />
     </>
   )

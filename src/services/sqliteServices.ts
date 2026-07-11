@@ -37,6 +37,7 @@ import type {
   InventoryLedger,
   Order,
   OrderPayment,
+  PurchasePayment,
   Receipt,
   Refiner,
   Scheme,
@@ -146,6 +147,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
   const schemeAccountsRepo = makeTableRepo("scheme_accounts", typesFor("scheme_accounts"), exec)
   const schemesRepo = makeTableRepo("schemes", typesFor("schemes"), exec)
   const suppliersRepo = makeTableRepo("suppliers", typesFor("suppliers"), exec)
+  const purchasePaymentsRepo = makeTableRepo("purchase_payments", typesFor("purchase_payments"), exec)
   const receiptsRepo = makeTableRepo("receipts", typesFor("receipts"), exec)
 
   /** DELETE every row of `table` matching one equality column (used by cascade rewrites). */
@@ -841,7 +843,38 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
         "SELECT COALESCE(SUM(balance), 0) AS s FROM purchase_invoices WHERE supplierId = $1",
         [supplierId],
       )
-      return round(supplier.openingBalance + (rows[0]?.s ?? 0))
+      const onAcc = await exec.query<{ s: number }>(
+        "SELECT COALESCE(SUM(amount), 0) AS s FROM purchase_payments WHERE supplierId = $1 AND purchaseId IS NULL",
+        [supplierId],
+      )
+      return round(supplier.openingBalance + (rows[0]?.s ?? 0) - (onAcc[0]?.s ?? 0))
+    },
+  }
+
+  const purchasePaymentsService = {
+    getAll: () => purchasePaymentsRepo.getAll(["id", "DESC"]) as unknown as Promise<PurchasePayment[]>,
+    getBySupplier: (supplierId: number) =>
+      purchasePaymentsRepo.where({ supplierId } as never) as unknown as Promise<PurchasePayment[]>,
+    getByPurchase: (purchaseId: number) =>
+      purchasePaymentsRepo.where({ purchaseId } as never) as unknown as Promise<PurchasePayment[]>,
+    async add(input: Omit<PurchasePayment, "id" | "createdAt">): Promise<PurchasePayment> {
+      return withTransaction(exec, async () => {
+        const pay = { ...input, createdAt: nowIso() }
+        const created = (await purchasePaymentsRepo.add(pay as never)) as { id: number }
+        if (input.purchaseId) {
+          const inv = (await purchaseRepo.get(input.purchaseId)) as unknown as
+            | { amountPaid: number; netAmount: number }
+            | undefined
+          if (inv) {
+            const amountPaid = round(inv.amountPaid + input.amount)
+            await purchaseRepo.update(input.purchaseId, {
+              amountPaid,
+              balance: round(inv.netAmount - amountPaid),
+            } as never)
+          }
+        }
+        return { ...pay, id: created.id } as unknown as PurchasePayment
+      })
     },
   }
 
@@ -1168,6 +1201,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     schemesService,
     purchaseService,
     suppliersService,
+    purchasePaymentsService,
     receiptsService,
     ordersService,
     reportsService,

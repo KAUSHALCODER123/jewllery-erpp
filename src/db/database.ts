@@ -24,6 +24,7 @@ import type {
   OrderPayment,
   PurchaseInvoice,
   PurchaseItem,
+  PurchasePayment,
   Receipt,
   Refining,
   Refiner,
@@ -63,6 +64,7 @@ export class JewelDatabase extends Dexie {
   bullion_movement!: Table<BullionMovement, number>
   inventory_ledger!: Table<InventoryLedger, number>
   order_payments!: Table<OrderPayment, number>
+  purchase_payments!: Table<PurchasePayment, number>
 
   constructor(name: string) {
     super(name)
@@ -127,6 +129,11 @@ export class JewelDatabase extends Dexie {
     // v9: per-order advance payments (Order Booking — Phase 2).
     this.version(9).stores({
       order_payments: "++id, orderId, date",
+    })
+
+    // v10: vendor payments (Purchase — Phase 2).
+    this.version(10).stores({
+      purchase_payments: "++id, supplierId, purchaseId, date",
     })
   }
 }
