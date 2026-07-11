@@ -12,16 +12,22 @@ import {
   XCircle,
   Boxes,
   Hammer,
+  Search,
+  FileSpreadsheet,
+  MessageCircle,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Order, OrderStatus } from "@/db/types"
 import { ordersService, customersService, todayStr } from "@/services/dbService"
-import { ORDER_STATUS_META, ORDER_WORKFLOW, orderTypeLabel } from "@/lib/constants"
+import { ORDER_STATUS_META, ORDER_WORKFLOW, ORDER_TYPES, orderTypeLabel } from "@/lib/constants"
 import { formatAmount, formatDate } from "@/lib/format"
+import { exportObjectsToExcel } from "@/lib/excel"
+import { openWhatsApp } from "@/lib/waTemplates"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/stores/useSession"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import {
   Table,
   TableBody,
@@ -61,20 +67,107 @@ export function OrdersPage() {
   const [detailOrder, setDetailOrder] = useState<Order | null>(null)
   const [advanceOrder, setAdvanceOrder] = useState<Order | null>(null)
   const [assignOrder, setAssignOrder] = useState<Order | null>(null)
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [typeFilter, setTypeFilter] = useState("all")
+  const [quick, setQuick] = useState<"all" | "delayed" | "ready" | "in_production">("all")
   const navigate = useNavigate()
   const posStore = usePosStore()
   const user = useSession((s) => s.user)
   const orders = useLiveData(() => ordersService.getAll(), [], undefined)
   const customers = useLiveData(() => customersService.getAll(), [], [])
-  const custName = useMemo(() => {
-    const m = new Map<number, string>()
-    for (const c of customers) m.set(c.id!, c.name)
+  const custInfo = useMemo(() => {
+    const m = new Map<number, { name: string; mobile: string }>()
+    for (const c of customers) m.set(c.id!, { name: c.name, mobile: c.mobile })
     return m
   }, [customers])
+  const custName = (id: number) => custInfo.get(id)?.name ?? "—"
 
-  const openCount = (orders ?? []).filter(
-    (o) => o.status !== "delivered" && o.status !== "cancelled",
-  ).length
+  const today = todayStr()
+  const isOpen = (o: Order) => o.status !== "delivered" && o.status !== "cancelled"
+  const PROD_STATUSES = new Set<OrderStatus>([
+    "assigned_workshop",
+    "in_production",
+    "stone_setting",
+    "polishing",
+    "quality_check",
+  ])
+  const deliveredOn = (o: Order) =>
+    [...(o.statusHistory ?? [])].reverse().find((h) => h.status === "delivered")?.at?.slice(0, 10)
+
+  const list = orders ?? []
+  const openCount = list.filter(isOpen).length
+
+  const metrics = useMemo(() => {
+    const open = list.filter(isOpen)
+    const delivered = list.filter((o) => o.status === "delivered").length
+    return {
+      today: list.filter((o) => o.date === today).length,
+      open: open.length,
+      ready: list.filter((o) => o.status === "ready").length,
+      delayed: open.filter((o) => o.deliveryDate && o.deliveryDate < today).length,
+      inProduction: list.filter((o) => PROD_STATUSES.has(o.status)).length,
+      deliveredToday: list.filter((o) => o.status === "delivered" && deliveredOn(o) === today).length,
+      advance: Number(list.reduce((s, o) => s + o.advanceReceived, 0).toFixed(2)),
+      pending: Number(open.reduce((s, o) => s + (o.estimatedAmount - o.advanceReceived), 0).toFixed(2)),
+      completion: delivered + open.length > 0 ? Math.round((delivered / (delivered + open.length)) * 100) : 0,
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, today])
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return list.filter((o) => {
+      const c = custInfo.get(o.customerId)
+      const okText =
+        !q ||
+        o.orderNo.toLowerCase().includes(q) ||
+        (c?.name.toLowerCase().includes(q) ?? false) ||
+        (c?.mobile.includes(q) ?? false) ||
+        o.items.some((i) => i.description.toLowerCase().includes(q))
+      const st = o.status === "booked" ? "confirmed" : o.status
+      const okStatus = statusFilter === "all" || st === statusFilter
+      const okType = typeFilter === "all" || (o.orderType ?? "custom") === typeFilter
+      const okQuick =
+        quick === "all" ||
+        (quick === "ready" && o.status === "ready") ||
+        (quick === "in_production" && PROD_STATUSES.has(o.status)) ||
+        (quick === "delayed" && isOpen(o) && !!o.deliveryDate && o.deliveryDate < today)
+      return okText && okStatus && okType && okQuick
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orders, custInfo, search, statusFilter, typeFilter, quick, today])
+
+  const exportExcel = () => {
+    if (filtered.length === 0) return toast.error("No orders to export")
+    const rows = filtered.map((o) => ({
+      "Order No": o.orderNo,
+      Customer: custName(o.customerId),
+      Mobile: custInfo.get(o.customerId)?.mobile ?? "",
+      Type: orderTypeLabel(o.orderType),
+      "Order Date": o.date,
+      Delivery: o.deliveryDate ?? "",
+      Status: (ORDER_STATUS_META[o.status] ?? ORDER_STATUS_META.confirmed).label,
+      Estimated: o.estimatedAmount,
+      Advance: o.advanceReceived,
+      Balance: Number((o.estimatedAmount - o.advanceReceived).toFixed(2)),
+      Salesperson: o.salesperson ?? "",
+    }))
+    exportObjectsToExcel(`orders-${today}.xlsx`, "Orders", rows)
+    toast.success(`Exported ${rows.length} orders`)
+  }
+
+  const notify = (o: Order) => {
+    const info = custInfo.get(o.customerId)
+    const bal = Number((o.estimatedAmount - o.advanceReceived).toFixed(2))
+    const label = (ORDER_STATUS_META[o.status] ?? ORDER_STATUS_META.confirmed).label
+    const msg =
+      `Dear ${info?.name ?? "Customer"}, update on your order ${o.orderNo} ` +
+      `(${orderTypeLabel(o.orderType)}): ${label}.` +
+      (bal > 0 ? ` Balance due ₹${formatAmount(bal)}.` : "") +
+      (o.deliveryDate ? ` Delivery: ${formatDate(o.deliveryDate)}.` : "")
+    openWhatsApp(info?.mobile, msg)
+  }
 
   const handleDeliver = (order: Order) => {
     posStore.reset()
@@ -122,13 +215,18 @@ export function OrdersPage() {
         title="Order Booking"
         subtitle={`${openCount} open orders`}
         actions={
-          <Button size="sm" onClick={() => setFormOpen(true)}>
-            <Plus className="size-4" /> New Order
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={exportExcel}>
+              <FileSpreadsheet className="size-4" /> Excel
+            </Button>
+            <Button size="sm" onClick={() => setFormOpen(true)}>
+              <Plus className="size-4" /> New Order
+            </Button>
+          </div>
         }
       />
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 space-y-4 overflow-auto p-4">
         {orders && orders.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
             <ClipboardList className="size-10 text-muted-foreground/50" />
@@ -138,8 +236,76 @@ export function OrdersPage() {
             </Button>
           </div>
         ) : (
-          <Table>
-            <TableHeader className="sticky top-0 z-10 bg-card">
+          <>
+            {/* Dashboard */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
+              <Metric label="Today's Orders" value={metrics.today} />
+              <Metric label="Open" value={metrics.open} />
+              <Metric label="Ready" value={metrics.ready} tone="violet" />
+              <Metric label="Delayed" value={metrics.delayed} tone="red" />
+              <Metric label="In Production" value={metrics.inProduction} tone="amber" />
+              <Metric label="Delivered Today" value={metrics.deliveredToday} tone="emerald" />
+              <Metric label="Advance Collected" value={`₹${formatAmount(metrics.advance)}`} small />
+              <Metric label="Pending Payments" value={`₹${formatAmount(metrics.pending)}`} small tone="red" />
+            </div>
+
+            {/* Toolbar */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-64">
+                <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search order, customer, mobile, item…"
+                  className="h-8 pl-8"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger size="sm" className="w-40">
+                  <SelectValue placeholder="All statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {ORDER_WORKFLOW.concat("cancelled").map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {ORDER_STATUS_META[s].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger size="sm" className="w-40">
+                  <SelectValue placeholder="All types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  {ORDER_TYPES.map((t) => (
+                    <SelectItem key={t.value} value={t.value}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex gap-1">
+                {(["all", "delayed", "ready", "in_production"] as const).map((qk) => (
+                  <button
+                    key={qk}
+                    onClick={() => setQuick(qk)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-xs font-medium capitalize transition-colors",
+                      quick === qk ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-accent",
+                    )}
+                  >
+                    {qk === "in_production" ? "In production" : qk}
+                  </button>
+                ))}
+              </div>
+              <span className="ml-auto text-xs text-muted-foreground">{filtered.length} shown</span>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border bg-card">
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
                 <TableHead className="w-24">Order No</TableHead>
                 <TableHead>Customer</TableHead>
@@ -152,14 +318,21 @@ export function OrdersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(orders ?? []).map((o) => {
+              {filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
+                    No orders match your filters.
+                  </TableCell>
+                </TableRow>
+              )}
+              {filtered.map((o) => {
                 const meta = ORDER_STATUS_META[o.status] ?? ORDER_STATUS_META.confirmed
                 const closed = o.status === "delivered" || o.status === "cancelled"
                 return (
                   <TableRow key={o.id}>
                     <TableCell className="font-medium">{o.orderNo}</TableCell>
                     <TableCell>
-                      <div>{custName.get(o.customerId) ?? "—"}</div>
+                      <div>{custName(o.customerId)}</div>
                       <div className="max-w-[220px] truncate text-[11px] text-muted-foreground">
                         {o.items.map((i) => i.description).filter(Boolean).join(", ") || "—"}
                       </div>
@@ -217,6 +390,9 @@ export function OrdersPage() {
                           <DropdownMenuItem onClick={() => setTimelineOrder(o)}>
                             <Clock className="size-4" /> Timeline
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => notify(o)}>
+                            <MessageCircle className="size-4" /> Notify (WhatsApp)
+                          </DropdownMenuItem>
                           {!closed && (
                             <DropdownMenuItem onClick={() => setAdvanceOrder(o)}>
                               <IndianRupee className="size-4" /> Receive Advance
@@ -254,8 +430,10 @@ export function OrdersPage() {
                   </TableRow>
                 )
               })}
-            </TableBody>
-          </Table>
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </div>
 
@@ -265,5 +443,32 @@ export function OrdersPage() {
       <ReceiveAdvanceDialog order={advanceOrder} onOpenChange={(o) => !o && setAdvanceOrder(null)} />
       <AssignWorkshopDialog order={assignOrder} onOpenChange={(o) => !o && setAssignOrder(null)} />
     </>
+  )
+}
+
+const TONES: Record<string, string> = {
+  default: "text-foreground",
+  violet: "text-violet-600 dark:text-violet-400",
+  red: "text-destructive",
+  amber: "text-amber-600 dark:text-amber-400",
+  emerald: "text-emerald-600 dark:text-emerald-400",
+}
+
+function Metric({
+  label,
+  value,
+  tone = "default",
+  small,
+}: {
+  label: string
+  value: string | number
+  tone?: keyof typeof TONES
+  small?: boolean
+}) {
+  return (
+    <div className="rounded-xl border bg-card p-3 shadow-sm">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className={cn("mt-0.5 font-bold tabular", small ? "text-base" : "text-2xl", TONES[tone])}>{value}</div>
+    </div>
   )
 }
