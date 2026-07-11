@@ -11,6 +11,7 @@ import {
 } from "@/services/dbService"
 import type { PurchaseDraft } from "@/services/dbService"
 import { formatAmount, wt } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import { CATEGORIES, categoryByLabel } from "@/lib/constants"
 import { GST_RATES } from "@/features/pos/calc"
 import { Button } from "@/components/ui/button"
@@ -161,7 +162,7 @@ export function PurchaseFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl">
+      <DialogContent className="max-w-5xl max-h-[90vh] grid-rows-[auto_minmax(0,1fr)_auto]">
         <DialogHeader>
           <DialogTitle>New Purchase</DialogTitle>
           <DialogDescription>
@@ -170,7 +171,7 @@ export function PurchaseFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3">
+        <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
           <div className="grid grid-cols-4 gap-3">
             <div className="col-span-2 space-y-1">
               <Label className="text-xs text-muted-foreground">Supplier</Label>
@@ -373,8 +374,21 @@ export function PurchaseFormDialog({
             </div>
             <div className="text-right text-sm">
               <div className="text-muted-foreground">Balance</div>
-              <div className="font-semibold tabular text-destructive">
-                {formatAmount(balance)}
+              <div
+                className={cn(
+                  "font-semibold tabular",
+                  balance > 0
+                    ? "text-destructive"
+                    : balance < 0
+                      ? "text-emerald-600"
+                      : "text-muted-foreground",
+                )}
+              >
+                {balance > 0
+                  ? formatAmount(balance)
+                  : balance < 0
+                    ? `${formatAmount(-balance)} Adv`
+                    : "Settled"}
               </div>
             </div>
           </div>
