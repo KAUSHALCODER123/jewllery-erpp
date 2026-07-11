@@ -524,6 +524,7 @@ CREATE TABLE IF NOT EXISTS companies (
   defaultHsnCode      TEXT,
   loyaltyEarnPerGram  REAL,
   loyaltyRupeesPerPoint REAL,
+  loyaltyMaxPoints    REAL,
   templateInvoice     TEXT,
   templateDues        TEXT,
   templateGirvi       TEXT,

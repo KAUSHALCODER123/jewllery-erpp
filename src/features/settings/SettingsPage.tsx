@@ -182,6 +182,7 @@ function PrintSettings() {
     defaultHsnCode: "7113",
     loyaltyEarnPerGram: 1,
     loyaltyRupeesPerPoint: 1,
+    loyaltyMaxPoints: 0,
   })
   const [colorMode, setColorMode] = useState("default")
 
@@ -203,6 +204,7 @@ function PrintSettings() {
         defaultHsnCode: company.defaultHsnCode ?? "7113",
         loyaltyEarnPerGram: company.loyaltyEarnPerGram ?? 1,
         loyaltyRupeesPerPoint: company.loyaltyRupeesPerPoint ?? 1,
+        loyaltyMaxPoints: company.loyaltyMaxPoints ?? 0,
       })
 
       const accentColor = company.printAccentColor ?? "#000000"
@@ -255,6 +257,7 @@ function PrintSettings() {
       defaultHsnCode: form.defaultHsnCode.trim(),
       loyaltyEarnPerGram: form.loyaltyEarnPerGram,
       loyaltyRupeesPerPoint: form.loyaltyRupeesPerPoint,
+      loyaltyMaxPoints: form.loyaltyMaxPoints,
     }
     await authService.updateCompany(company.id, patch)
     setCompanyProfile({ ...company, ...patch })
@@ -482,6 +485,15 @@ function PrintSettings() {
               step="0.1"
               value={form.loyaltyRupeesPerPoint}
               onChange={(e) => setForm({ ...form, loyaltyRupeesPerPoint: e.target.value === "" ? 1 : e.target.valueAsNumber || 0 })}
+            />
+          </Field>
+          <Field label="Max Loyalty Points (0 = no limit)">
+            <Input
+              type="number"
+              step="1"
+              min={0}
+              value={form.loyaltyMaxPoints || ""}
+              onChange={(e) => setForm({ ...form, loyaltyMaxPoints: e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0) })}
             />
           </Field>
         </div>

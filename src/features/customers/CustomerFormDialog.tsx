@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import type { Customer } from "@/db/types"
 import { customerSchema, type CustomerFormValues } from "@/lib/validators"
 import { customersService } from "@/services/dbService"
+import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -48,6 +49,7 @@ export function CustomerFormDialog({
   onOpenChange: (open: boolean) => void
   editCustomer?: Customer | null
 }) {
+  const company = useSession((s) => s.company)
   const form = useForm<CustomerFormValues>({
     resolver: zodResolver(customerSchema),
     defaultValues: emptyValues,
@@ -76,6 +78,10 @@ export function CustomerFormDialog({
   }, [open, editCustomer, form])
 
   const onSubmit = async (values: CustomerFormValues) => {
+    const cap = company?.loyaltyMaxPoints ?? 0
+    if (cap > 0 && values.loyaltyPoints > cap) {
+      return toast.error(`Loyalty points can't exceed the ${cap}-point limit`)
+    }
     const payload = {
       name: values.name,
       mobile: values.mobile,

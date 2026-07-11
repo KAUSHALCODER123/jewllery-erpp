@@ -91,9 +91,14 @@ export function CheckoutPane({
     [sales, urd, gstRate, cashPaid, upiPaid, billDiscount, makingDiscount, loyaltyDiscount, tcsPct, interState, store.advanceApplied],
   )
 
-  const pointsEarned = isEdit
-    ? 0
-    : Math.round(totals.salesNetWt * earnPerGram)
+  // Points earned this sale, capped so the customer's balance never exceeds the
+  // firm's max (Settings → Loyalty). New balance = available − redeemed + earned.
+  const maxPoints = company?.loyaltyMaxPoints ?? 0
+  const rawEarn = isEdit ? 0 : Math.round(totals.salesNetWt * earnPerGram)
+  const pointsEarned =
+    maxPoints > 0
+      ? Math.max(0, Math.min(rawEarn, maxPoints - availablePoints + cappedRedeem))
+      : rawEarn
 
   const canSave = customerId != null && sales.length > 0
 
@@ -216,7 +221,7 @@ export function CheckoutPane({
               className="h-8 tabular text-right"
               value={billDiscount || ""}
               onChange={(e) =>
-                setBillDiscount(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)
+                setBillDiscount(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))
               }
             />
           </div>
@@ -227,7 +232,7 @@ export function CheckoutPane({
               className="h-8 tabular text-right"
               value={makingDiscount || ""}
               onChange={(e) =>
-                setMakingDiscount(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)
+                setMakingDiscount(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))
               }
             />
           </div>
@@ -304,7 +309,7 @@ export function CheckoutPane({
             className="h-8 w-20 tabular text-right"
             value={tcsPct || ""}
             onChange={(e) =>
-              setTcsPct(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)
+              setTcsPct(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))
             }
           />
           {totals.tcs > 0 && (
@@ -391,7 +396,7 @@ export function CheckoutPane({
             className="tabular text-right"
             value={cashPaid || ""}
             onChange={(e) =>
-              setCashPaid(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)
+              setCashPaid(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))
             }
           />
           <Label className="text-xs text-muted-foreground">UPI Received</Label>
@@ -400,7 +405,7 @@ export function CheckoutPane({
             className="tabular text-right"
             value={upiPaid || ""}
             onChange={(e) =>
-              setUpiPaid(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)
+              setUpiPaid(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))
             }
           />
         </div>

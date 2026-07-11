@@ -50,6 +50,8 @@ export interface Company {
   defaultHsnCode?: string
   loyaltyEarnPerGram?: number
   loyaltyRupeesPerPoint?: number
+  /** Max points a customer may hold (0 / unset = no limit). */
+  loyaltyMaxPoints?: number
   // WhatsApp notification templates
   templateInvoice?: string
   templateDues?: string

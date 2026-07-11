@@ -35,7 +35,8 @@ export const NumCell = forwardRef<HTMLInputElement, NumCellProps>(
         onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => {
           const v = e.target.valueAsNumber
-          onChange(Number.isNaN(v) ? 0 : v)
+          // Clamp to `min` (default 0) — weights, rates and amounts are never negative.
+          onChange(Number.isNaN(v) ? 0 : Math.max(min, v))
         }}
         className={cn(
           "h-8 w-full bg-transparent px-1.5 text-right text-sm tabular outline-none",
