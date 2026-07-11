@@ -395,16 +395,30 @@ export interface Refining {
   type: MetalType
   /** Input gross weight sent for refining. */
   inputWt: number
+  /** Karat label the input fineness was picked from (e.g. "22K"), if any. */
+  inputKarat?: string
   /** Fineness of the input metal as a percentage (e.g. 91.6 for 22K). */
   inputFinePct: number
+  /** Pure metal content of the input = inputWt × inputFinePct/100. */
+  pureGoldWt?: number
   /** Extra loss during melting, percent. */
   refiningLossPct: number
-  /** Actual pure metal weight received back. */
+  /** Weight lost in refining = pureGoldWt × refiningLossPct/100. */
+  lossWt?: number
+  /** Actual pure metal weight received back (= pureGoldWt − lossWt). */
   outputWt: number
+  /** Recovery % of the job = outputWt ÷ inputWt × 100. */
+  recoveryPct?: number
   /** Purity of the output (e.g. "24K (999)"). */
   outputPurity: string
+  /** Kind of scrap refined (old jewellery, casting scrap, polishing dust…). */
+  scrapType?: string
   /** The refined-bullion stock item created from this job. */
   outputItemId?: number
+  /** Lifecycle: a reversed job is kept for audit but its movements are undone. */
+  status?: "completed" | "reversed"
+  /** Name of the user who recorded the job (audit trail). */
+  createdBy?: string
   notes?: string
   createdAt?: string
 }

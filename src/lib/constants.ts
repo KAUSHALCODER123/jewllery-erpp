@@ -43,6 +43,29 @@ export const PURITY_OPTIONS: Record<MetalType, string[]> = {
   other: ["—"],
 }
 
+/**
+ * Standard gold karats and their fineness %, used by the Refining module to
+ * auto-populate input fineness from a chosen karat (no manual % typing).
+ */
+export interface KaratDef {
+  karat: string
+  label: string
+  finePct: number
+}
+
+export const GOLD_KARATS: KaratDef[] = [
+  { karat: "24K", label: "24K · 99.9%", finePct: 99.9 },
+  { karat: "23K", label: "23K · 95.8%", finePct: 95.8 },
+  { karat: "22K", label: "22K · 91.6%", finePct: 91.6 },
+  { karat: "21K", label: "21K · 87.5%", finePct: 87.5 },
+  { karat: "20K", label: "20K · 83.3%", finePct: 83.3 },
+  { karat: "18K", label: "18K · 75.0%", finePct: 75.0 },
+  { karat: "14K", label: "14K · 58.5%", finePct: 58.5 },
+]
+
+export const karatByLabel = (karat: string): KaratDef | undefined =>
+  GOLD_KARATS.find((k) => k.karat === karat)
+
 /** Loyalty programme rules (configurable defaults). */
 export const LOYALTY_EARN_PER_GRAM = 1 // points earned per gram of net weight sold
 export const LOYALTY_RUPEES_PER_POINT = 1 // ₹ discount value of one point on redemption

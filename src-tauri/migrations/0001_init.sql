@@ -308,11 +308,18 @@ CREATE TABLE IF NOT EXISTS refinings (
   description     TEXT NOT NULL,
   type            TEXT NOT NULL,
   inputWt         REAL NOT NULL DEFAULT 0,
+  inputKarat      TEXT,
   inputFinePct    REAL NOT NULL DEFAULT 0,
+  pureGoldWt      REAL,
   refiningLossPct REAL NOT NULL DEFAULT 0,
+  lossWt          REAL,
   outputWt        REAL NOT NULL DEFAULT 0,
+  recoveryPct     REAL,
   outputPurity    TEXT NOT NULL,
+  scrapType       TEXT,
   outputItemId    INTEGER,
+  status          TEXT,
+  createdBy       TEXT,
   notes           TEXT,
   createdAt       TEXT
 );
