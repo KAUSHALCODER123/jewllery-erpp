@@ -58,6 +58,8 @@ export function LoanFormDialog({
   const [interestMode, setInterestMode] = useState<"monthly" | "daywise">("monthly")
   const [loanAmount, setLoanAmount] = useState(0)
   const [interestRate, setInterestRate] = useState(2)
+  const [lendingRate, setLendingRate] = useState(0)
+  const [manualAmount, setManualAmount] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -70,12 +72,25 @@ export function LoanFormDialog({
       setInterestMode("monthly")
       setLoanAmount(0)
       setInterestRate(2)
+      setLendingRate(0)
+      setManualAmount(false)
     }
   }, [open])
 
   const totalGross = rows.reduce((s, r) => s + r.grossWt, 0)
   const totalNet = rows.reduce((s, r) => s + r.netWt, 0)
   const totalValue = rows.reduce((s, r) => s + r.estimatedValue, 0)
+
+  // Auto-suggest the loan amount = net weight × lending rate (₹/g), the way a
+  // shopkeeper lends. Stops the moment the user types their own amount.
+  useEffect(() => {
+    if (!manualAmount && lendingRate > 0) {
+      setLoanAmount(Math.round(totalNet * lendingRate))
+    }
+  }, [lendingRate, totalNet, manualAmount])
+
+  const perMonth = (loanAmount * interestRate) / 100
+  const ltvPct = totalValue > 0 ? Math.round((loanAmount / totalValue) * 100) : 0
 
   const updateRow = (id: string, patch: Partial<PledgeRow>) =>
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)))
@@ -346,21 +361,36 @@ export function LoanFormDialog({
             </div>
           </div>
 
-          {/* Loan terms */}
-          <div className="grid grid-cols-4 gap-3">
+          {/* Loan terms — lending rate first, so the amount fills itself */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">
-                Loan Amount (₹)
+                Lending Rate (₹/g)
+              </Label>
+              <Input
+                type="number"
+                step={1}
+                className="tabular text-right"
+                placeholder="e.g. 3500"
+                value={lendingRate || ""}
+                onChange={(e) => {
+                  setManualAmount(false)
+                  setLendingRate(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))
+                }}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">
+                Loan Amount (₹){lendingRate > 0 && !manualAmount ? " · auto" : ""}
               </Label>
               <Input
                 type="number"
                 className="tabular text-right"
                 value={loanAmount || ""}
-                onChange={(e) =>
-                  setLoanAmount(
-                    e.target.value === "" ? 0 : e.target.valueAsNumber || 0,
-                  )
-                }
+                onChange={(e) => {
+                  setManualAmount(true)
+                  setLoanAmount(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)
+                }}
               />
             </div>
             <div className="space-y-1">
@@ -396,12 +426,28 @@ export function LoanFormDialog({
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex items-end pb-2">
-              <p className="text-[11px] text-muted-foreground leading-none">
-                ≈ {formatAmount((loanAmount * interestRate) / 100)} interest / month
-                {interestMode === "daywise" && " (day-wise accrual)"}
-              </p>
-            </div>
+          </div>
+
+          {/* Live preview: how the amount was derived + what the interest costs */}
+          <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-md bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+            {lendingRate > 0 && (
+              <span>
+                {wt(totalNet)} g × ₹{formatAmount(lendingRate)}/g ={" "}
+                <b className="text-foreground">₹{formatAmount(totalNet * lendingRate)}</b>
+              </span>
+            )}
+            {totalValue > 0 && (
+              <span>
+                Loan-to-value:{" "}
+                <b className={ltvPct > 80 ? "text-destructive" : "text-foreground"}>{ltvPct}%</b>
+                {ltvPct > 80 && " (high)"}
+              </span>
+            )}
+            <span>
+              Interest ≈ <b className="text-foreground">₹{formatAmount(perMonth)}</b>/month · ₹
+              {formatAmount(perMonth * 3)} for 3 mo · ₹{formatAmount(perMonth * 6)} for 6 mo
+              {interestMode === "daywise" && " (day-wise)"}
+            </span>
           </div>
         </div>
 
