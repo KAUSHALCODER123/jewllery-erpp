@@ -11,6 +11,8 @@ import {
   AlignRight,
   Bold,
   RotateCcw,
+  Upload,
+  ImageOff,
 } from "lucide-react"
 import { toast } from "sonner"
 import { useSession } from "@/stores/useSession"
@@ -54,6 +56,29 @@ export function ReceiptDesignerPage() {
   const [dragId, setDragId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // Logo lives on the company (shared with Settings → Print & Rates and the
+  // actual printed invoice), so we edit those same fields and save them here.
+  const [logoUrl, setLogoUrl] = useState<string>(company?.printLogoUrl ?? "")
+  const [showLogo, setShowLogo] = useState<boolean>(company?.printShowLogo ?? false)
+
+  const onLogoUpload = (file?: File) => {
+    if (!file) return
+    if (file.size > 2_000_000) {
+      toast.error("Logo size too large (max 2 MB)")
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      setLogoUrl(reader.result as string)
+      setShowLogo(true)
+    }
+    reader.readAsDataURL(file)
+  }
+  const removeLogo = () => {
+    setLogoUrl("")
+    setShowLogo(false)
+  }
+
   const patchBlock = (id: string, patch: Partial<ReceiptBlock>) =>
     setLayout((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)))
 
@@ -93,8 +118,9 @@ export function ReceiptDesignerPage() {
     setSaving(true)
     try {
       const receiptLayout = serializeReceiptLayout(layout)
-      await authService.updateCompany(company.id, { receiptLayout })
-      setCompanyProfile({ ...company, receiptLayout })
+      const patch = { receiptLayout, printLogoUrl: logoUrl, printShowLogo: showLogo }
+      await authService.updateCompany(company.id, patch)
+      setCompanyProfile({ ...company, ...patch })
       toast.success("Receipt layout saved")
     } catch (err) {
       toast.error(`Failed to save: ${(err as Error).message}`)
@@ -148,6 +174,17 @@ export function ReceiptDesignerPage() {
               onToggle={() => toggle(block.id)}
               onPatch={(patch) => patchBlock(block.id, patch)}
               onRemove={block.type === "text" ? () => removeBlock(block.id) : undefined}
+              logo={
+                block.type === "header"
+                  ? {
+                      url: logoUrl,
+                      show: showLogo,
+                      onUpload: onLogoUpload,
+                      onRemove: removeLogo,
+                      onToggle: () => setShowLogo((v) => !v),
+                    }
+                  : undefined
+              }
             />
           ))}
 
@@ -163,7 +200,7 @@ export function ReceiptDesignerPage() {
             Live preview
           </p>
           <div className="flex justify-center rounded-lg border bg-muted/30 p-4">
-            <ReceiptPreview layout={layout} />
+            <ReceiptPreview layout={layout} logoUrl={logoUrl} showLogo={showLogo} />
           </div>
         </div>
       </div>
@@ -175,6 +212,14 @@ export function ReceiptDesignerPage() {
 /* One editable block row in the palette.                                     */
 /* -------------------------------------------------------------------------- */
 
+interface LogoControls {
+  url: string
+  show: boolean
+  onUpload: (file?: File) => void
+  onRemove: () => void
+  onToggle: () => void
+}
+
 function BlockRow({
   block,
   dragging,
@@ -184,6 +229,7 @@ function BlockRow({
   onToggle,
   onPatch,
   onRemove,
+  logo,
 }: {
   block: ReceiptBlock
   dragging: boolean
@@ -193,6 +239,7 @@ function BlockRow({
   onToggle: () => void
   onPatch: (patch: Partial<ReceiptBlock>) => void
   onRemove?: () => void
+  logo?: LogoControls
 }) {
   const meta = BLOCK_META[block.type]
   const styleable = block.type === "text" || block.type === "footer" || block.type === "header" || block.type === "customer" || block.type === "barcode"
@@ -302,6 +349,58 @@ function BlockRow({
           </button>
         </div>
       )}
+
+      {/* Logo — header block only. Shared with Settings & the printed invoice. */}
+      {block.enabled && logo && (
+        <div className="mt-2 border-t pt-2">
+          <div className="flex items-center gap-3">
+            <label
+              className="flex size-14 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed bg-muted/30 hover:bg-muted"
+              title="Upload a logo image"
+            >
+              {logo.url ? (
+                <img src={logo.url} alt="Shop logo" className="size-full object-contain" />
+              ) : (
+                <Upload className="size-4 text-muted-foreground" />
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => logo.onUpload(e.target.files?.[0])}
+              />
+            </label>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium">Shop logo</p>
+              <p className="text-[11px] text-muted-foreground">
+                {logo.url ? "Shown left of the shop name" : "PNG/JPG, max 2 MB"}
+              </p>
+            </div>
+            {logo.url && (
+              <>
+                <Button
+                  variant={logo.show ? "secondary" : "ghost"}
+                  size="icon"
+                  className="size-7"
+                  onClick={logo.onToggle}
+                  title={logo.show ? "Hide logo on receipt" : "Show logo on receipt"}
+                >
+                  {logo.show ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-destructive"
+                  onClick={logo.onRemove}
+                  title="Remove logo"
+                >
+                  <ImageOff className="size-3.5" />
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -311,7 +410,15 @@ function BlockRow({
 /* Uses representative sample data so the shop sees ordering/toggles/styles.   */
 /* -------------------------------------------------------------------------- */
 
-function ReceiptPreview({ layout }: { layout: ReceiptLayout }) {
+function ReceiptPreview({
+  layout,
+  logoUrl,
+  showLogo,
+}: {
+  layout: ReceiptLayout
+  logoUrl?: string
+  showLogo?: boolean
+}) {
   const company = useSession((s) => s.company)
   const t = receiptT(company?.receiptLanguage)
 
@@ -337,10 +444,15 @@ function ReceiptPreview({ layout }: { layout: ReceiptLayout }) {
   const sections: Record<ReceiptBlockType, React.ReactNode> = {
     header: (
       <div className="flex items-start justify-between border-b-2 border-black pb-2">
-        <div>
-          <h1 className="text-lg font-bold">{SHOP.name}</h1>
-          <p className="text-[10px] leading-tight">{SHOP.address}</p>
-          <p className="text-[10px] leading-tight">GSTIN: {SHOP.gstin} · Ph: {SHOP.phone}</p>
+        <div className="flex items-start gap-2.5">
+          {showLogo && logoUrl && (
+            <img src={logoUrl} alt="Logo" className="size-12 object-contain" />
+          )}
+          <div>
+            <h1 className="text-lg font-bold">{SHOP.name}</h1>
+            <p className="text-[10px] leading-tight">{SHOP.address}</p>
+            <p className="text-[10px] leading-tight">GSTIN: {SHOP.gstin} · Ph: {SHOP.phone}</p>
+          </div>
         </div>
         <div className="text-right">
           <p className="text-sm font-bold">{t("taxInvoice")}</p>
