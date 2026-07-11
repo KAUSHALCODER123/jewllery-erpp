@@ -26,6 +26,7 @@ export const TABLE_TYPES: Record<string, ColumnTypes> = {
   receipts: {},
   orders: { json: ["items"] },
   refinings: {},
+  refiners: {},
   counters: {},
   // system DB
   users: { bools: ["active"] },

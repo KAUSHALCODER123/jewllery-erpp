@@ -66,6 +66,26 @@ export const GOLD_KARATS: KaratDef[] = [
 export const karatByLabel = (karat: string): KaratDef | undefined =>
   GOLD_KARATS.find((k) => k.karat === karat)
 
+/** Kinds of scrap a jewellery shop sends for refining (searchable/filterable). */
+export const SCRAP_TYPES: string[] = [
+  "Old Jewellery",
+  "Broken Jewellery",
+  "Casting Scrap",
+  "Polishing Dust",
+  "Gold Filing",
+  "Gold Sweeps",
+  "Customer Exchange",
+  "Returned Jewellery",
+]
+
+/** How a refiner charges for a job. */
+export const REFINING_CHARGE_TYPES: { value: string; label: string; unit: string }[] = [
+  { value: "none", label: "No charge", unit: "" },
+  { value: "per_gram", label: "Per gram", unit: "₹/g" },
+  { value: "flat", label: "Flat", unit: "₹" },
+  { value: "percentage", label: "Percentage", unit: "%" },
+]
+
 /** Loyalty programme rules (configurable defaults). */
 export const LOYALTY_EARN_PER_GRAM = 1 // points earned per gram of net weight sold
 export const LOYALTY_RUPEES_PER_POINT = 1 // ₹ discount value of one point on redemption

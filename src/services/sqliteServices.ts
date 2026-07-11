@@ -32,7 +32,7 @@ import type {
   PurchaseDraft,
   SaleDraft,
 } from "@/services/dbService"
-import type { Order, Receipt, Scheme, SchemeAccount, SchemeScheduleRow, Supplier } from "@/db/types"
+import type { Order, Receipt, Refiner, Scheme, SchemeAccount, SchemeScheduleRow, Supplier } from "@/db/types"
 import { computeLoanDues } from "@/features/girvi/interest"
 import { makeTableRepo, withTransaction, tauriExecutor, type SqlExecutor } from "@/db/sqliteRepo"
 import { decodeRow } from "@/db/sqlBuilder"
@@ -115,6 +115,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
   const karigarsRepo = makeTableRepo("karigars", typesFor("karigars"), exec)
   const karigarJobsRepo = makeTableRepo("karigar_jobs", typesFor("karigar_jobs"), exec)
   const refiningsRepo = makeTableRepo("refinings", typesFor("refinings"), exec)
+  const refinersRepo = makeTableRepo("refiners", typesFor("refiners"), exec)
   const purchaseRepo = makeTableRepo("purchase_invoices", typesFor("purchase_invoices"), exec)
   const purchaseItemsRepo = makeTableRepo("purchase_items", typesFor("purchase_items"), exec)
   const schemePaymentsRepo = makeTableRepo("scheme_payments", typesFor("scheme_payments"), exec)
@@ -691,6 +692,18 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     },
   }
 
+  const refinersService = {
+    getAll: () => refinersRepo.getAll(["name", "ASC"]) as unknown as Promise<Refiner[]>,
+    get: (id: number) => refinersRepo.get(id) as unknown as Promise<Refiner | undefined>,
+    remove: (id: number) => refinersRepo.remove(id),
+    update: (id: number, patch: Partial<Refiner>) =>
+      refinersRepo.update(id, { ...patch, updatedAt: nowIso() }),
+    async add(input: Omit<Refiner, "id" | "createdAt" | "updatedAt">): Promise<Refiner> {
+      const record: Omit<Refiner, "id"> = { ...input, createdAt: nowIso(), updatedAt: nowIso() }
+      return (await refinersRepo.add(record as never)) as unknown as Refiner
+    },
+  }
+
   const suppliersService = {
     getAll: () => suppliersRepo.getAll(["name", "ASC"]) as unknown as Promise<Supplier[]>,
     get: (id: number) => suppliersRepo.get(id) as unknown as Promise<Supplier | undefined>,
@@ -996,6 +1009,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     loansService,
     karigarsService,
     refiningService,
+    refinersService,
     schemesService,
     purchaseService,
     suppliersService,

@@ -317,6 +317,13 @@ CREATE TABLE IF NOT EXISTS refinings (
   recoveryPct     REAL,
   outputPurity    TEXT NOT NULL,
   scrapType       TEXT,
+  refinerId       INTEGER,
+  chargeType      TEXT,
+  chargeRate      REAL,
+  chargeAmount    REAL,
+  chargeGstPct    REAL,
+  chargeGstAmount REAL,
+  totalCharge     REAL,
   outputItemId    INTEGER,
   status          TEXT,
   createdBy       TEXT,
@@ -324,6 +331,22 @@ CREATE TABLE IF NOT EXISTS refinings (
   createdAt       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_refinings_date ON refinings(date);
+
+-- ---------- Refiners (internal team / external refinery) ----------
+CREATE TABLE IF NOT EXISTS refiners (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT NOT NULL,
+  kind         TEXT NOT NULL,
+  contact      TEXT,
+  address      TEXT,
+  chargeType   TEXT,
+  chargeRate   REAL,
+  gstPct       REAL,
+  notes        TEXT,
+  createdAt    TEXT,
+  updatedAt    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_refiners_name ON refiners(name);
 
 -- ---------- Document-number counters ----------
 CREATE TABLE IF NOT EXISTS counters (

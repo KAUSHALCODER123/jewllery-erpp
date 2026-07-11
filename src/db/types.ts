@@ -413,6 +413,15 @@ export interface Refining {
   outputPurity: string
   /** Kind of scrap refined (old jewellery, casting scrap, polishing dust…). */
   scrapType?: string
+  /** Refiner (internal team or external refinery) who processed the job. */
+  refinerId?: number
+  /** Refining-charge basis and its computed cost (accounting). */
+  chargeType?: "per_gram" | "flat" | "percentage"
+  chargeRate?: number
+  chargeAmount?: number
+  chargeGstPct?: number
+  chargeGstAmount?: number
+  totalCharge?: number
   /** The refined-bullion stock item created from this job. */
   outputItemId?: number
   /** Lifecycle: a reversed job is kept for audit but its movements are undone. */
@@ -421,6 +430,28 @@ export interface Refining {
   createdBy?: string
   notes?: string
   createdAt?: string
+}
+
+/**
+ * A refiner — either an internal melting team or an external refinery — used by
+ * the Refining module. Stores default charges so picking a refiner pre-fills the
+ * charge basis on a new job.
+ */
+export interface Refiner {
+  id?: number
+  name: string
+  /** "internal" (own workshop) or "external" (outside refinery). */
+  kind: "internal" | "external"
+  contact?: string
+  address?: string
+  /** Default charge basis applied when this refiner is chosen. */
+  chargeType?: "per_gram" | "flat" | "percentage"
+  chargeRate?: number
+  /** Default GST % on the refining charge. */
+  gstPct?: number
+  notes?: string
+  createdAt?: string
+  updatedAt?: string
 }
 
 /** Named monotonic counters used to mint sequential document numbers. */

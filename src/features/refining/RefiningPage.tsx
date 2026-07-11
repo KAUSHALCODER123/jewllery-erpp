@@ -8,18 +8,32 @@ import {
   Scale,
   Loader2,
   Gem,
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  Building2,
+  User,
+  Receipt as ReceiptIcon,
 } from "lucide-react"
 import { toast } from "sonner"
-import type { MetalType } from "@/db/types"
-import { itemsService, refiningService, todayStr } from "@/services/dbService"
-import { METAL_TYPES, GOLD_KARATS, karatByLabel } from "@/lib/constants"
-import { formatDate, wt } from "@/lib/format"
+import type { MetalType, Refiner } from "@/db/types"
+import { itemsService, refiningService, refinersService, todayStr } from "@/services/dbService"
+import {
+  METAL_TYPES,
+  GOLD_KARATS,
+  karatByLabel,
+  SCRAP_TYPES,
+  REFINING_CHARGE_TYPES,
+} from "@/lib/constants"
+import { formatAmount, formatDate, wt } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/stores/useSession"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
   DialogContent,
@@ -43,6 +57,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { RefinerFormDialog } from "./RefinerFormDialog"
+
+type ChargeType = "none" | "per_gram" | "flat" | "percentage"
 
 const round3 = (n: number) => Number((Number.isFinite(n) ? n : 0).toFixed(3))
 const round2 = (n: number) => Number((Number.isFinite(n) ? n : 0).toFixed(2))
@@ -57,7 +74,6 @@ function purityToFinePct(purity: string): number {
   return Number.isFinite(num) && num > 0 && num <= 100 ? num : 91.6
 }
 
-/** Map an item's purity string onto a known karat, else "Custom". */
 function purityToKarat(purity: string): string {
   const fine = purityToFinePct(purity)
   const hit = GOLD_KARATS.find((k) => Math.abs(k.finePct - fine) < 0.2)
@@ -67,11 +83,16 @@ function purityToKarat(purity: string): string {
 export function RefiningPage() {
   const inStock = useLiveData(() => itemsService.getInStock(), [], [])
   const history = useLiveData(() => refiningService.getAll(), [], [])
+  const refiners = useLiveData(() => refinersService.getAll(), [], [])
   const user = useSession((s) => s.user)
 
+  const [tab, setTab] = useState("refine")
+
+  // ---- Job form state ----
   const [date, setDate] = useState(todayStr())
-  const [refinerName, setRefinerName] = useState("")
+  const [refinerId, setRefinerId] = useState("none")
   const [sourceId, setSourceId] = useState("none")
+  const [scrapType, setScrapType] = useState("Old Jewellery")
   const [description, setDescription] = useState("")
   const [type, setType] = useState<MetalType>("gold")
   const [inputWt, setInputWt] = useState(0)
@@ -81,14 +102,27 @@ export function RefiningPage() {
   const [outputPurity, setOutputPurity] = useState("24K (999)")
   const [addToStock, setAddToStock] = useState(true)
 
+  // ---- Charges ----
+  const [chargeType, setChargeType] = useState<ChargeType>("none")
+  const [chargeRate, setChargeRate] = useState(0)
+  const [chargeBase, setChargeBase] = useState(0)
+  const [chargeGstPct, setChargeGstPct] = useState(0)
+
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // ---- Refiner management ----
+  const [refinerDialogOpen, setRefinerDialogOpen] = useState(false)
+  const [editRefiner, setEditRefiner] = useState<Refiner | null>(null)
+
+  // ---- History filters ----
+  const [histSearch, setHistSearch] = useState("")
+  const [histScrap, setHistScrap] = useState("all")
 
   const isGold = type === "gold"
   const usingKarat = isGold && karat !== "Custom"
   const finePct = usingKarat ? karatByLabel(karat)?.finePct ?? 91.6 : customFine
 
-  // ---- Live, fully-automatic calculation (no manual output entry). ----
   const calc = useMemo(() => {
     const pureGold = round3(inputWt * (finePct / 100))
     const lossWt = round3(pureGold * (lossPct / 100))
@@ -97,6 +131,17 @@ export function RefiningPage() {
     return { pureGold, lossWt, recovered, recoveryPct }
   }, [inputWt, finePct, lossPct])
 
+  const charges = useMemo(() => {
+    let amount = 0
+    if (chargeType === "per_gram") amount = round2(chargeRate * inputWt)
+    else if (chargeType === "flat") amount = round2(chargeRate)
+    else if (chargeType === "percentage") amount = round2((chargeBase * chargeRate) / 100)
+    const gst = round2(amount * (chargeGstPct / 100))
+    return { amount, gst, total: round2(amount + gst) }
+  }, [chargeType, chargeRate, chargeBase, chargeGstPct, inputWt])
+
+  const hasCharge = chargeType !== "none"
+  const chargeUnit = REFINING_CHARGE_TYPES.find((c) => c.value === chargeType)?.unit ?? ""
   const inputPurityLabel = usingKarat ? `${karat} · ${finePct}%` : `${finePct}% fine`
 
   const onSource = (val: string) => {
@@ -116,7 +161,17 @@ export function RefiningPage() {
     }
   }
 
-  /** Returns an error message if the job is invalid, else null. */
+  const onSelectRefiner = (val: string) => {
+    setRefinerId(val)
+    if (val === "none") return
+    const r = refiners.find((x) => String(x.id) === val)
+    if (r?.chargeType) {
+      setChargeType(r.chargeType as ChargeType)
+      setChargeRate(r.chargeRate ?? 0)
+      setChargeGstPct(r.gstPct ?? 0)
+    }
+  }
+
   const validate = (): string | null => {
     if (!(inputWt > 0)) return "Enter a valid input weight (greater than zero)"
     if (!(finePct > 0) || finePct > 99.99) return "Fineness must be between 0 and 99.99%"
@@ -135,12 +190,15 @@ export function RefiningPage() {
   const doRefine = async () => {
     setSaving(true)
     try {
+      const refiner = refinerId !== "none" ? refiners.find((r) => String(r.id) === refinerId) : undefined
       const rec = await refiningService.create(
         {
           date,
-          refinerName: refinerName.trim() || undefined,
+          refinerId: refiner?.id,
+          refinerName: refiner?.name,
           sourceItemId: sourceId !== "none" ? Number(sourceId) : undefined,
-          description: description.trim() || "Scrap metal",
+          scrapType: scrapType || undefined,
+          description: description.trim() || scrapType || "Scrap metal",
           type,
           inputWt,
           inputKarat: usingKarat ? karat : undefined,
@@ -151,16 +209,18 @@ export function RefiningPage() {
           outputWt: calc.recovered,
           recoveryPct: calc.recoveryPct,
           outputPurity,
+          chargeType: hasCharge ? chargeType : undefined,
+          chargeRate: hasCharge ? chargeRate : undefined,
+          chargeAmount: hasCharge ? charges.amount : undefined,
+          chargeGstPct: hasCharge ? chargeGstPct : undefined,
+          chargeGstAmount: hasCharge ? charges.gst : undefined,
+          totalCharge: hasCharge ? charges.total : undefined,
           status: "completed",
           createdBy: user?.name,
         },
         { addToStock },
       )
-      toast.success(
-        `${rec.refiningNo}: ${wt(inputWt)} → ${wt(calc.recovered)} g pure` +
-          (addToStock ? ` · bullion ${rec.outputItemId ? "added to stock" : ""}` : ""),
-      )
-      // Reset for the next job.
+      toast.success(`${rec.refiningNo}: ${wt(inputWt)} → ${wt(calc.recovered)} g pure`)
       setConfirmOpen(false)
       setSourceId("none")
       setDescription("")
@@ -173,272 +233,516 @@ export function RefiningPage() {
     }
   }
 
+  const filteredHistory = useMemo(() => {
+    const q = histSearch.trim().toLowerCase()
+    return (history ?? []).filter((r) => {
+      const okScrap = histScrap === "all" || r.scrapType === histScrap
+      const okText =
+        !q || r.refiningNo.toLowerCase().includes(q) || r.description.toLowerCase().includes(q)
+      return okScrap && okText
+    })
+  }, [history, histSearch, histScrap])
+
+  const deleteRefiner = async (r: Refiner) => {
+    if (!r.id) return
+    if (!confirm(`Delete refiner ${r.name}?`)) return
+    await refinersService.remove(r.id)
+    toast.success(`Deleted ${r.name}`)
+  }
+
   return (
     <>
       <PageHeader
         title="Metal Refining (Ghalai)"
-        subtitle="Melt scrap / old metal into pure bullion — fineness, loss and recovery are calculated automatically"
+        subtitle="Melt scrap into pure bullion — fineness, loss, recovery and charges are calculated automatically"
       />
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-auto p-4">
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,460px)_1fr]">
-          {/* ---- Input form ---- */}
-          <section className="space-y-3 rounded-xl border bg-card p-4 shadow-sm">
-            <h3 className="flex items-center gap-2 text-sm font-semibold">
-              <Flame className="size-4 text-orange-500" /> Refining Job
-            </h3>
+      <Tabs value={tab} onValueChange={setTab} className="min-h-0 flex-1 gap-0 overflow-hidden">
+        <div className="border-b px-4 py-2">
+          <TabsList>
+            <TabsTrigger value="refine">
+              <Flame className="size-4" /> Refine
+            </TabsTrigger>
+            <TabsTrigger value="refiners">
+              <Building2 className="size-4" /> Refiners ({refiners.length})
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Date">
-                <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-              </Field>
-              <Field label="Refiner">
-                <Input
-                  value={refinerName}
-                  onChange={(e) => setRefinerName(e.target.value)}
-                  placeholder="optional"
-                />
-              </Field>
-            </div>
+        {/* ============ REFINE TAB ============ */}
+        <TabsContent value="refine" className="min-h-0 space-y-4 overflow-auto p-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,480px)_1fr]">
+            {/* ---- Input form ---- */}
+            <section className="space-y-3 rounded-xl border bg-card p-4 shadow-sm">
+              <h3 className="flex items-center gap-2 text-sm font-semibold">
+                <Flame className="size-4 text-orange-500" /> Refining Job
+              </h3>
 
-            <Field label="Source from stock (optional)">
-              <Select value={sourceId} onValueChange={onSource}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Untracked scrap" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Untracked scrap</SelectItem>
-                  {inStock.map((i) => (
-                    <SelectItem key={i.id} value={String(i.id)}>
-                      {i.tag} · {i.name} ({wt(i.grossWt)}g)
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Date">
+                  <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                </Field>
+                <Field label="Refiner">
+                  <div className="flex gap-1">
+                    <Select value={refinerId} onValueChange={onSelectRefiner}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="In-house" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">In-house / none</SelectItem>
+                        {refiners.map((r) => (
+                          <SelectItem key={r.id} value={String(r.id)}>
+                            {r.name} ({r.kind === "internal" ? "int" : "ext"})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => {
+                        setEditRefiner(null)
+                        setRefinerDialogOpen(true)
+                      }}
+                      title="New refiner"
+                    >
+                      <Plus className="size-4" />
+                    </Button>
+                  </div>
+                </Field>
+              </div>
 
-            <Field label="Description">
-              <Input
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="e.g. Old 22K gold scrap"
-              />
-            </Field>
-
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Metal">
-                <Select value={type} onValueChange={(v) => setType(v as MetalType)}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {METAL_TYPES.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>
-                        {m.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label="Input Wt (g)">
-                <Input
-                  type="number"
-                  step="0.001"
-                  min={0}
-                  className="tabular text-right"
-                  value={inputWt || ""}
-                  onChange={(e) => setInputWt(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))}
-                />
-              </Field>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {/* Input purity: karat dropdown for gold, fineness for custom / other metals. */}
-              <Field label="Input Purity">
-                {isGold ? (
-                  <Select value={karat} onValueChange={setKarat}>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Source from stock (optional)">
+                  <Select value={sourceId} onValueChange={onSource}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Untracked scrap" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Untracked scrap</SelectItem>
+                      {inStock.map((i) => (
+                        <SelectItem key={i.id} value={String(i.id)}>
+                          {i.tag} · {i.name} ({wt(i.grossWt)}g)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Scrap Type">
+                  <Select value={scrapType} onValueChange={setScrapType}>
                     <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {GOLD_KARATS.map((k) => (
-                        <SelectItem key={k.karat} value={k.karat}>
-                          {k.label}
+                      {SCRAP_TYPES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
                         </SelectItem>
                       ))}
-                      <SelectItem value="Custom">Custom…</SelectItem>
                     </SelectContent>
                   </Select>
-                ) : (
-                  <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm text-muted-foreground">
-                    Enter fineness →
+                </Field>
+              </div>
+
+              <Field label="Description">
+                <Input
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="e.g. Old 22K gold scrap"
+                />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Metal">
+                  <Select value={type} onValueChange={(v) => setType(v as MetalType)}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {METAL_TYPES.map((m) => (
+                        <SelectItem key={m.value} value={m.value}>
+                          {m.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Field label="Input Wt (g)">
+                  <Input
+                    type="number"
+                    step="0.001"
+                    min={0}
+                    className="tabular text-right"
+                    value={inputWt || ""}
+                    onChange={(e) => setInputWt(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))}
+                  />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Input Purity">
+                  {isGold ? (
+                    <Select value={karat} onValueChange={setKarat}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {GOLD_KARATS.map((k) => (
+                          <SelectItem key={k.karat} value={k.karat}>
+                            {k.label}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="Custom">Custom…</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="flex h-9 items-center rounded-md border bg-muted/40 px-3 text-sm text-muted-foreground">
+                      Enter fineness →
+                    </div>
+                  )}
+                </Field>
+                <Field label={usingKarat ? "Fineness % (auto)" : "Fineness %"}>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    max={99.99}
+                    disabled={usingKarat}
+                    className={cn("tabular text-right", usingKarat && "bg-muted/40 text-muted-foreground")}
+                    value={usingKarat ? finePct : customFine || ""}
+                    onChange={(e) =>
+                      setCustomFine(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))
+                    }
+                  />
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Refining Loss %">
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    max={100}
+                    className="tabular text-right"
+                    value={lossPct || ""}
+                    onChange={(e) => setLossPct(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))}
+                  />
+                </Field>
+                <Field label="Output Purity">
+                  <Input value={outputPurity} onChange={(e) => setOutputPurity(e.target.value)} />
+                </Field>
+              </div>
+
+              {/* Charges */}
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <Label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <ReceiptIcon className="size-3.5" /> Refining Charges
+                </Label>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  <Field label="Basis">
+                    <Select value={chargeType} onValueChange={(v) => setChargeType(v as ChargeType)}>
+                      <SelectTrigger size="sm" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REFINING_CHARGE_TYPES.map((c) => (
+                          <SelectItem key={c.value} value={c.value}>
+                            {c.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label={`Rate ${chargeUnit && `(${chargeUnit})`}`}>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      disabled={!hasCharge}
+                      className="tabular text-right"
+                      value={chargeRate || ""}
+                      onChange={(e) => setChargeRate(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)}
+                    />
+                  </Field>
+                  <Field label="GST %">
+                    <Input
+                      type="number"
+                      step="0.1"
+                      disabled={!hasCharge}
+                      className="tabular text-right"
+                      value={chargeGstPct || ""}
+                      onChange={(e) => setChargeGstPct(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)}
+                    />
+                  </Field>
+                </div>
+                {chargeType === "percentage" && (
+                  <div className="mt-2">
+                    <Field label="Charge Base Value (₹)">
+                      <Input
+                        type="number"
+                        step="1"
+                        className="tabular text-right"
+                        value={chargeBase || ""}
+                        onChange={(e) => setChargeBase(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)}
+                      />
+                    </Field>
                   </div>
                 )}
-              </Field>
-              <Field label={usingKarat ? "Fineness % (auto)" : "Fineness %"}>
-                <Input
-                  type="number"
-                  step="0.1"
-                  min={0}
-                  max={99.99}
-                  disabled={usingKarat}
-                  className={cn("tabular text-right", usingKarat && "bg-muted/40 text-muted-foreground")}
-                  value={usingKarat ? finePct : customFine || ""}
-                  onChange={(e) =>
-                    setCustomFine(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))
-                  }
+              </div>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={addToStock}
+                  onChange={(e) => setAddToStock(e.target.checked)}
+                  className="size-4 cursor-pointer accent-primary"
                 />
-              </Field>
-            </div>
+                Add refined bullion to stock
+              </label>
+            </section>
 
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Refining Loss %">
-                <Input
-                  type="number"
-                  step="0.1"
-                  min={0}
-                  max={100}
-                  className="tabular text-right"
-                  value={lossPct || ""}
-                  onChange={(e) => setLossPct(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))}
+            {/* ---- Live summary ---- */}
+            <section className="flex flex-col gap-4 rounded-xl border border-primary/30 bg-gradient-to-b from-primary/5 to-transparent p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <Calculator className="size-4 text-primary" />
+                <h3 className="text-sm font-semibold">Refining Summary</h3>
+                <span
+                  className={cn(
+                    "ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                    calc.recoveryPct >= 90
+                      ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                      : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+                  )}
+                >
+                  {calc.recoveryPct.toFixed(2)}% recovery
+                </span>
+              </div>
+
+              <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-sm">
+                <Row icon={<Scale className="size-3.5" />} label="Input Weight" value={`${wt(inputWt)} g`} />
+                <Row icon={<Gem className="size-3.5" />} label="Input Purity" value={inputPurityLabel} />
+                <Row label="Pure Gold Content" value={`${wt(calc.pureGold)} g`} strong />
+                <Row label="Refining Loss" value={`${lossPct || 0}%`} />
+                <Row
+                  icon={<TrendingDown className="size-3.5 text-orange-500" />}
+                  label="Loss Weight"
+                  value={`${wt(calc.lossWt)} g`}
+                  tone="loss"
                 />
-              </Field>
-              <Field label="Output Purity">
-                <Input value={outputPurity} onChange={(e) => setOutputPurity(e.target.value)} />
-              </Field>
-            </div>
+                <Row label="Output Purity" value={outputPurity} />
+                <Row label="Bullion Number" value={addToStock ? "Auto (BUL…)" : "Not added to stock"} />
+                <Row label="Recovery %" value={`${calc.recoveryPct.toFixed(2)}%`} />
+              </dl>
 
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={addToStock}
-                onChange={(e) => setAddToStock(e.target.checked)}
-                className="size-4 cursor-pointer accent-primary"
-              />
-              Add refined bullion to stock
-            </label>
-          </section>
+              <div className="flex items-center justify-between rounded-lg border border-emerald-300/60 bg-emerald-50 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/40">
+                <span className="flex items-center gap-2 text-sm font-medium text-emerald-800 dark:text-emerald-300">
+                  <Coins className="size-4" /> Recovered Gold
+                </span>
+                <span className="text-2xl font-bold tabular text-emerald-700 dark:text-emerald-300">
+                  {wt(calc.recovered)} <span className="text-base font-medium">g</span>
+                </span>
+              </div>
 
-          {/* ---- Live summary card ---- */}
-          <section className="flex flex-col gap-4 rounded-xl border border-primary/30 bg-gradient-to-b from-primary/5 to-transparent p-4 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Calculator className="size-4 text-primary" />
-              <h3 className="text-sm font-semibold">Refining Summary</h3>
-              <span
-                className={cn(
-                  "ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                  calc.recoveryPct >= 90
-                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
-                    : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
-                )}
-              >
-                {calc.recoveryPct.toFixed(2)}% recovery
-              </span>
-            </div>
+              {hasCharge && (
+                <div className="space-y-1.5 rounded-lg border bg-muted/30 p-3 text-sm">
+                  <Row label="Refining Charge" value={`₹${formatAmount(charges.amount)}`} />
+                  {charges.gst > 0 && (
+                    <Row label={`GST (${chargeGstPct}%)`} value={`₹${formatAmount(charges.gst)}`} />
+                  )}
+                  <div className="flex items-center justify-between border-t pt-1.5 font-semibold">
+                    <span>Total Cost</span>
+                    <span className="tabular">₹{formatAmount(charges.total)}</span>
+                  </div>
+                </div>
+              )}
 
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-sm">
-              <Row icon={<Scale className="size-3.5" />} label="Input Weight" value={`${wt(inputWt)} g`} />
-              <Row icon={<Gem className="size-3.5" />} label="Input Purity" value={inputPurityLabel} />
-              <Row label="Pure Gold Content" value={`${wt(calc.pureGold)} g`} strong />
-              <Row label="Refining Loss" value={`${lossPct || 0}%`} />
-              <Row
-                icon={<TrendingDown className="size-3.5 text-orange-500" />}
-                label="Loss Weight"
-                value={`${wt(calc.lossWt)} g`}
-                tone="loss"
-              />
-              <Row label="Output Purity" value={outputPurity} />
-              <Row
-                label="Bullion Number"
-                value={addToStock ? "Auto (BUL…)" : "Not added to stock"}
-              />
-              <Row label="Recovery %" value={`${calc.recoveryPct.toFixed(2)}%`} />
-            </dl>
-
-            {/* Recovered — the headline figure */}
-            <div className="flex items-center justify-between rounded-lg border border-emerald-300/60 bg-emerald-50 px-4 py-3 dark:border-emerald-900 dark:bg-emerald-950/40">
-              <span className="flex items-center gap-2 text-sm font-medium text-emerald-800 dark:text-emerald-300">
-                <Coins className="size-4" /> Recovered Gold
-              </span>
-              <span className="text-2xl font-bold tabular text-emerald-700 dark:text-emerald-300">
-                {wt(calc.recovered)} <span className="text-base font-medium">g</span>
-              </span>
-            </div>
-
-            <Button className="w-full" size="lg" onClick={onRefine} disabled={saving}>
-              <Flame className="size-4" /> Refine &amp; Add Bullion
-            </Button>
-          </section>
-        </div>
-
-        {/* ---- History ---- */}
-        <section className="rounded-xl border bg-card shadow-sm">
-          <div className="border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Refining History
+              <Button className="w-full" size="lg" onClick={onRefine} disabled={saving}>
+                <Flame className="size-4" /> Refine &amp; Add Bullion
+              </Button>
+            </section>
           </div>
-          <div className="overflow-x-auto">
-            <Table className="min-w-[900px]">
-              <TableHeader className="sticky top-0 bg-card">
+
+          {/* ---- History ---- */}
+          <section className="rounded-xl border bg-card shadow-sm">
+            <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Refining History
+              </span>
+              <div className="relative ml-auto w-56">
+                <Search className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={histSearch}
+                  onChange={(e) => setHistSearch(e.target.value)}
+                  placeholder="Search ref no / description"
+                  className="h-8 pl-7 text-sm"
+                />
+              </div>
+              <Select value={histScrap} onValueChange={setHistScrap}>
+                <SelectTrigger size="sm" className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All scrap types</SelectItem>
+                  {SCRAP_TYPES.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="overflow-x-auto">
+              <Table className="min-w-[860px]">
+                <TableHeader className="sticky top-0 bg-card">
+                  <TableRow>
+                    <TableHead className="w-24">Ref No</TableHead>
+                    <TableHead className="w-24">Date</TableHead>
+                    <TableHead>Source</TableHead>
+                    <TableHead className="w-32">Scrap</TableHead>
+                    <TableHead className="w-20 text-right">Input</TableHead>
+                    <TableHead className="w-24 text-right">Recovered</TableHead>
+                    <TableHead className="w-16 text-right">Rec.%</TableHead>
+                    <TableHead className="w-24 text-right">Charge</TableHead>
+                    <TableHead className="w-24">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredHistory.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
+                        {(history ?? []).length === 0
+                          ? "No refining jobs yet. Melt some scrap to get started."
+                          : "No jobs match your filters."}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {filteredHistory.map((r) => {
+                    const rec = r.recoveryPct ?? (r.inputWt > 0 ? round2((r.outputWt / r.inputWt) * 100) : 0)
+                    const reversed = r.status === "reversed"
+                    return (
+                      <TableRow key={r.id}>
+                        <TableCell className="font-medium">{r.refiningNo}</TableCell>
+                        <TableCell className="text-muted-foreground">{formatDate(r.date)}</TableCell>
+                        <TableCell className="max-w-[200px] truncate">{r.description}</TableCell>
+                        <TableCell className="text-muted-foreground">{r.scrapType ?? "—"}</TableCell>
+                        <TableCell className="text-right tabular">{wt(r.inputWt)}</TableCell>
+                        <TableCell className="text-right font-medium tabular">{wt(r.outputWt)}</TableCell>
+                        <TableCell className="text-right tabular">{rec.toFixed(1)}%</TableCell>
+                        <TableCell className="text-right tabular text-muted-foreground">
+                          {r.totalCharge ? `₹${formatAmount(r.totalCharge)}` : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={cn(
+                              "rounded px-1.5 py-0.5 text-[11px] font-medium",
+                              reversed
+                                ? "bg-muted text-muted-foreground line-through"
+                                : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+                            )}
+                          >
+                            {reversed ? "Reversed" : "Completed"}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </section>
+        </TabsContent>
+
+        {/* ============ REFINERS TAB ============ */}
+        <TabsContent value="refiners" className="min-h-0 overflow-auto p-4">
+          <div className="rounded-xl border bg-card shadow-sm">
+            <div className="flex items-center justify-between border-b px-4 py-2.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Refiners
+              </span>
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditRefiner(null)
+                  setRefinerDialogOpen(true)
+                }}
+              >
+                <Plus className="size-4" /> New Refiner
+              </Button>
+            </div>
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableHead className="w-24">Ref No</TableHead>
-                  <TableHead className="w-24">Date</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead className="w-20 text-right">Input</TableHead>
-                  <TableHead className="w-20">Purity</TableHead>
-                  <TableHead className="w-20 text-right">Pure</TableHead>
-                  <TableHead className="w-16 text-right">Loss%</TableHead>
-                  <TableHead className="w-24 text-right">Recovered</TableHead>
-                  <TableHead className="w-20 text-right">Rec.%</TableHead>
-                  <TableHead className="w-24">Status</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="w-28">Type</TableHead>
+                  <TableHead className="w-40">Contact</TableHead>
+                  <TableHead>Default Charge</TableHead>
+                  <TableHead className="w-20" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(history ?? []).length === 0 && (
+                {refiners.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
-                      No refining jobs yet. Melt some scrap to get started.
+                    <TableCell colSpan={5} className="py-12 text-center text-muted-foreground">
+                      No refiners yet. Add your in-house team or an outside refinery.
                     </TableCell>
                   </TableRow>
                 )}
-                {(history ?? []).map((r) => {
-                  const pure = r.pureGoldWt ?? round3(r.inputWt * (r.inputFinePct / 100))
-                  const rec = r.recoveryPct ?? (r.inputWt > 0 ? round2((r.outputWt / r.inputWt) * 100) : 0)
-                  const reversed = r.status === "reversed"
-                  return (
-                    <TableRow key={r.id}>
-                      <TableCell className="font-medium">{r.refiningNo}</TableCell>
-                      <TableCell className="text-muted-foreground">{formatDate(r.date)}</TableCell>
-                      <TableCell className="max-w-[220px] truncate">{r.description}</TableCell>
-                      <TableCell className="text-right tabular">{wt(r.inputWt)}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {r.inputKarat ?? `${r.inputFinePct}%`}
-                      </TableCell>
-                      <TableCell className="text-right tabular text-muted-foreground">{wt(pure)}</TableCell>
-                      <TableCell className="text-right tabular text-muted-foreground">
-                        {r.refiningLossPct}
-                      </TableCell>
-                      <TableCell className="text-right font-medium tabular">{wt(r.outputWt)}</TableCell>
-                      <TableCell className="text-right tabular">{rec.toFixed(1)}%</TableCell>
-                      <TableCell>
-                        <span
-                          className={cn(
-                            "rounded px-1.5 py-0.5 text-[11px] font-medium",
-                            reversed
-                              ? "bg-muted text-muted-foreground line-through"
-                              : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
-                          )}
+                {refiners.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell>
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium",
+                          r.kind === "internal"
+                            ? "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                            : "bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300",
+                        )}
+                      >
+                        {r.kind === "internal" ? <User className="size-3" /> : <Building2 className="size-3" />}
+                        {r.kind === "internal" ? "Internal" : "External"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{r.contact ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {r.chargeType
+                        ? `${REFINING_CHARGE_TYPES.find((c) => c.value === r.chargeType)?.label} · ${r.chargeRate}${
+                            REFINING_CHARGE_TYPES.find((c) => c.value === r.chargeType)?.unit
+                          }${r.gstPct ? ` + ${r.gstPct}% GST` : ""}`
+                        : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7"
+                          onClick={() => {
+                            setEditRefiner(r)
+                            setRefinerDialogOpen(true)
+                          }}
+                          aria-label="Edit refiner"
                         >
-                          {reversed ? "Reversed" : "Completed"}
-                        </span>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
+                          <Pencil className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-destructive"
+                          onClick={() => void deleteRefiner(r)}
+                          aria-label="Delete refiner"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
               </TableBody>
             </Table>
           </div>
-        </section>
-      </div>
+        </TabsContent>
+      </Tabs>
 
       {/* ---- Confirmation dialog ---- */}
       <Dialog open={confirmOpen} onOpenChange={(o) => !saving && setConfirmOpen(o)}>
@@ -454,11 +758,8 @@ export function RefiningPage() {
             <ConfirmRow label="Input" value={`${wt(inputWt)} g · ${inputPurityLabel}`} />
             <ConfirmRow label="Pure gold" value={`${wt(calc.pureGold)} g`} />
             <ConfirmRow label="Refining loss" value={`${lossPct || 0}%  (−${wt(calc.lossWt)} g)`} />
-            <ConfirmRow
-              label="Recovered"
-              value={`${wt(calc.recovered)} g · ${outputPurity}`}
-              strong
-            />
+            <ConfirmRow label="Recovered" value={`${wt(calc.recovered)} g · ${outputPurity}`} strong />
+            {hasCharge && <ConfirmRow label="Charge (incl. GST)" value={`₹${formatAmount(charges.total)}`} />}
             {addToStock && (
               <p className="pt-1 text-xs text-muted-foreground">
                 A bullion stock item will be created and added to inventory.
@@ -476,6 +777,13 @@ export function RefiningPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RefinerFormDialog
+        open={refinerDialogOpen}
+        onOpenChange={setRefinerDialogOpen}
+        editRefiner={editRefiner}
+        onSaved={(r) => setRefinerId(String(r.id))}
+      />
     </>
   )
 }

@@ -22,6 +22,7 @@ import type {
   PurchaseItem,
   Receipt,
   Refining,
+  Refiner,
   SalesInvoice,
   SalesItem,
   Scheme,
@@ -53,6 +54,7 @@ export class JewelDatabase extends Dexie {
   orders!: Table<Order, number>
   refinings!: Table<Refining, number>
   loan_payments!: Table<LoanPayment, number>
+  refiners!: Table<Refiner, number>
 
   constructor(name: string) {
     super(name)
@@ -100,6 +102,11 @@ export class JewelDatabase extends Dexie {
     // v6: loan payments (Girvi depth)
     this.version(6).stores({
       loan_payments: "++id, loanId, date, type",
+    })
+
+    // v7: refiner master (Refining module — Phase 2).
+    this.version(7).stores({
+      refiners: "++id, name, kind",
     })
   }
 }

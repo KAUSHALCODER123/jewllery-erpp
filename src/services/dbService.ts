@@ -35,6 +35,7 @@ import type {
   PurchaseItem,
   Receipt,
   Refining,
+  Refiner,
   SalesInvoice,
   SalesItem,
   Scheme,
@@ -756,6 +757,27 @@ const refiningServiceDexie = {
 }
 
 /* ------------------------------------------------------------------ */
+/* Refiners (internal team / external refinery master)                */
+/* ------------------------------------------------------------------ */
+
+const refinersServiceDexie = {
+  getAll: (): Promise<Refiner[]> => db.refiners.orderBy("name").toArray(),
+
+  get: (id: number): Promise<Refiner | undefined> => db.refiners.get(id),
+
+  async add(input: Omit<Refiner, "id" | "createdAt" | "updatedAt">): Promise<Refiner> {
+    const record: Refiner = { ...input, createdAt: nowIso(), updatedAt: nowIso() }
+    const id = await db.refiners.add(record)
+    return { ...record, id }
+  },
+
+  update: (id: number, patch: Partial<Refiner>): Promise<void> =>
+    db.refiners.update(id, { ...patch, updatedAt: nowIso() }).then(() => undefined),
+
+  remove: (id: number): Promise<void> => db.refiners.delete(id),
+}
+
+/* ------------------------------------------------------------------ */
 /* Customer Orders (custom-jewellery booking)                         */
 /* ------------------------------------------------------------------ */
 
@@ -1441,6 +1463,7 @@ export const loansService = pick(loansServiceDexie, sqlite?.loansService)
 export const karigarsService = pick(karigarsServiceDexie, sqlite?.karigarsService)
 export const ordersService = pick(ordersServiceDexie, sqlite?.ordersService)
 export const refiningService = pick(refiningServiceDexie, sqlite?.refiningService)
+export const refinersService = pick(refinersServiceDexie, sqlite?.refinersService)
 export const suppliersService = pick(suppliersServiceDexie, sqlite?.suppliersService)
 export const purchaseService = pick(purchaseServiceDexie, sqlite?.purchaseService)
 export const schemesService = pick(schemesServiceDexie, sqlite?.schemesService)
@@ -1457,6 +1480,7 @@ export const dbService = {
   karigars: karigarsService,
   orders: ordersService,
   refining: refiningService,
+  refiners: refinersService,
   suppliers: suppliersService,
   purchases: purchaseService,
   schemes: schemesService,
