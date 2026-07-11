@@ -36,6 +36,7 @@ import type {
   Receipt,
   BullionStock,
   InventoryLedger,
+  OrderPayment,
   Refining,
   Refiner,
   SalesInvoice,
@@ -1010,6 +1011,43 @@ const ordersServiceDexie = {
     if (!o) return
     const entry = { status, at: nowIso(), by: opts.by, remarks: opts.remarks }
     await db.orders.update(id, { status, statusHistory: [...(o.statusHistory ?? []), entry] })
+  },
+
+  getPayments: (orderId: number): Promise<OrderPayment[]> =>
+    db.order_payments.where("orderId").equals(orderId).sortBy("id"),
+
+  /** Record an advance against an order: recompute the total advance and, on the
+   *  first advance, auto-advance the status to "advance_received". Atomic. */
+  async addPayment(
+    orderId: number,
+    input: { date: string; amount: number; mode: PaymentMode; notes?: string; by?: string },
+  ): Promise<OrderPayment> {
+    return db.transaction("rw", [db.orders, db.order_payments], async () => {
+      const order = await db.orders.get(orderId)
+      if (!order) throw new Error("Order not found")
+      const pay: OrderPayment = {
+        orderId,
+        date: input.date,
+        amount: input.amount,
+        mode: input.mode,
+        notes: input.notes,
+        createdBy: input.by,
+        createdAt: nowIso(),
+      }
+      const id = await db.order_payments.add(pay)
+      const all = await db.order_payments.where("orderId").equals(orderId).toArray()
+      const advanceReceived = round(all.reduce((s, p) => s + p.amount, 0))
+      const patch: Partial<Order> = { advanceReceived }
+      if (["draft", "confirmed", "booked"].includes(order.status)) {
+        patch.status = "advance_received"
+        patch.statusHistory = [
+          ...(order.statusHistory ?? []),
+          { status: "advance_received", at: nowIso(), by: input.by, remarks: `Advance ₹${input.amount}` },
+        ]
+      }
+      await db.orders.update(orderId, patch)
+      return { ...pay, id }
+    })
   },
 
   update: (id: number, patch: Partial<Order>): Promise<void> =>

@@ -36,6 +36,7 @@ import type {
   BullionStock,
   InventoryLedger,
   Order,
+  OrderPayment,
   Receipt,
   Refiner,
   Scheme,
@@ -129,6 +130,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
   const salesItemsRepo = makeTableRepo("sales_items", typesFor("sales_items"), exec)
   const urdRepo = makeTableRepo("urd_items", typesFor("urd_items"), exec)
   const ordersRepo = makeTableRepo("orders", typesFor("orders"), exec)
+  const orderPaymentsRepo = makeTableRepo("order_payments", typesFor("order_payments"), exec)
   const loansRepo = makeTableRepo("loans", typesFor("loans"), exec)
   const loanPaymentsRepo = makeTableRepo("loan_payments", typesFor("loan_payments"), exec)
   const karigarsRepo = makeTableRepo("karigars", typesFor("karigars"), exec)
@@ -866,6 +868,34 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       const entry = { status, at: nowIso(), by: opts.by, remarks: opts.remarks }
       const statusHistory = [...(o?.statusHistory ?? []), entry]
       await ordersRepo.update(id, { status, statusHistory } as never)
+    },
+    getPayments: (orderId: number) =>
+      orderPaymentsRepo.where({ orderId } as never) as unknown as Promise<OrderPayment[]>,
+    async addPayment(
+      orderId: number,
+      input: { date: string; amount: number; mode: OrderPayment["mode"]; notes?: string; by?: string },
+    ): Promise<OrderPayment> {
+      return withTransaction(exec, async () => {
+        const order = (await ordersRepo.get(orderId)) as unknown as Order | undefined
+        if (!order) throw new Error("Order not found")
+        const pay = {
+          orderId, date: input.date, amount: input.amount, mode: input.mode,
+          notes: input.notes, createdBy: input.by, createdAt: nowIso(),
+        }
+        const created = (await orderPaymentsRepo.add(pay as never)) as { id: number }
+        const all = (await orderPaymentsRepo.where({ orderId } as never)) as unknown as OrderPayment[]
+        const advanceReceived = round(all.reduce((s, p) => s + p.amount, 0))
+        const patch: Partial<Order> = { advanceReceived }
+        if (["draft", "confirmed", "booked"].includes(order.status)) {
+          patch.status = "advance_received"
+          patch.statusHistory = [
+            ...(order.statusHistory ?? []),
+            { status: "advance_received", at: nowIso(), by: input.by, remarks: `Advance ₹${input.amount}` },
+          ]
+        }
+        await ordersRepo.update(orderId, patch as never)
+        return { ...pay, id: created.id } as unknown as OrderPayment
+      })
     },
     update: (id: number, patch: Partial<Order>) => ordersRepo.update(id, patch as never),
     async getOpen(): Promise<Order[]> {

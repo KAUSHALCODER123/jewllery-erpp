@@ -95,8 +95,8 @@ test("every table the migration bridge copies exists in the schema", () => {
     "items", "customers", "sales_invoices", "sales_items", "urd_items", "loans",
     "loan_payments", "karigars", "karigar_jobs", "suppliers", "purchase_invoices",
     "purchase_items", "schemes", "scheme_accounts", "scheme_payments", "receipts",
-    "orders", "refinings", "refiners", "bullion_stock", "bullion_movement",
-    "inventory_ledger", "counters", "users", "companies",
+    "orders", "order_payments", "refinings", "refiners", "bullion_stock",
+    "bullion_movement", "inventory_ledger", "counters", "users", "companies",
   ]
   const missing = bridged.filter((t) => !schema[t])
   expect(missing, `tables bridged but not in schema: ${missing.join(", ")}`).toEqual([])

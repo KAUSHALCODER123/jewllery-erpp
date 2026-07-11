@@ -25,6 +25,7 @@ export const TABLE_TYPES: Record<string, ColumnTypes> = {
   scheme_payments: {},
   receipts: {},
   orders: { json: ["items", "statusHistory"] },
+  order_payments: {},
   refinings: {},
   refiners: {},
   bullion_stock: {},

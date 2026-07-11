@@ -418,6 +418,18 @@ export interface Order {
   createdAt?: string
 }
 
+/** An advance payment received against a specific order (many per order). */
+export interface OrderPayment {
+  id?: number
+  orderId: number
+  date: string
+  amount: number
+  mode: PaymentMode
+  notes?: string
+  createdBy?: string
+  createdAt?: string
+}
+
 /**
  * A standalone payment received from a customer against their running balance
  * (Udhari collection) — not tied to a specific invoice. Reduces what they owe.

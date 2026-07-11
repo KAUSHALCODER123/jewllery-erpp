@@ -313,6 +313,19 @@ CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(customerId);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_date ON orders(date);
 
+-- ---------- Per-order advance payments ----------
+CREATE TABLE IF NOT EXISTS order_payments (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  orderId    INTEGER NOT NULL,
+  date       TEXT NOT NULL,
+  amount     REAL NOT NULL DEFAULT 0,
+  mode       TEXT NOT NULL,
+  notes      TEXT,
+  createdBy  TEXT,
+  createdAt  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_order_payments_order ON order_payments(orderId);
+
 -- ---------- Metal refining (Ghalai) ----------
 CREATE TABLE IF NOT EXISTS refinings (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,

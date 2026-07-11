@@ -21,6 +21,7 @@ import type {
   KarigarJob,
   Loan,
   Order,
+  OrderPayment,
   PurchaseInvoice,
   PurchaseItem,
   Receipt,
@@ -61,6 +62,7 @@ export class JewelDatabase extends Dexie {
   bullion_stock!: Table<BullionStock, number>
   bullion_movement!: Table<BullionMovement, number>
   inventory_ledger!: Table<InventoryLedger, number>
+  order_payments!: Table<OrderPayment, number>
 
   constructor(name: string) {
     super(name)
@@ -120,6 +122,11 @@ export class JewelDatabase extends Dexie {
       bullion_stock: "++id, &bullionNo, type, purity, status, refiningId, itemId",
       bullion_movement: "++id, bullionId, date, type, refId",
       inventory_ledger: "++id, itemId, bullionId, date, refType, refId",
+    })
+
+    // v9: per-order advance payments (Order Booking — Phase 2).
+    this.version(9).stores({
+      order_payments: "++id, orderId, date",
     })
   }
 }

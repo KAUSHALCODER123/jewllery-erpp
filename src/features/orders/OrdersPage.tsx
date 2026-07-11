@@ -1,9 +1,19 @@
 import { useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, ClipboardList, Clock } from "lucide-react"
+import {
+  Plus,
+  ClipboardList,
+  Clock,
+  MoreHorizontal,
+  Eye,
+  IndianRupee,
+  Truck,
+  Copy,
+  XCircle,
+} from "lucide-react"
 import { toast } from "sonner"
 import type { Order, OrderStatus } from "@/db/types"
-import { ordersService, customersService } from "@/services/dbService"
+import { ordersService, customersService, todayStr } from "@/services/dbService"
 import { ORDER_STATUS_META, ORDER_WORKFLOW, orderTypeLabel } from "@/lib/constants"
 import { formatAmount, formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -25,10 +35,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { useNavigate } from "react-router-dom"
 import { usePosStore } from "@/features/pos/usePosStore"
 import { OrderFormDialog } from "./OrderFormDialog"
 import { OrderTimelineDialog } from "./OrderTimelineDialog"
+import { OrderDetailDialog } from "./OrderDetailDialog"
+import { ReceiveAdvanceDialog } from "./ReceiveAdvanceDialog"
 
 /** Statuses selectable from the row dropdown — the workflow plus Cancelled. */
 const SELECTABLE: OrderStatus[] = [...ORDER_WORKFLOW, "cancelled"]
@@ -36,6 +55,8 @@ const SELECTABLE: OrderStatus[] = [...ORDER_WORKFLOW, "cancelled"]
 export function OrdersPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [timelineOrder, setTimelineOrder] = useState<Order | null>(null)
+  const [detailOrder, setDetailOrder] = useState<Order | null>(null)
+  const [advanceOrder, setAdvanceOrder] = useState<Order | null>(null)
   const navigate = useNavigate()
   const posStore = usePosStore()
   const user = useSession((s) => s.user)
@@ -65,6 +86,21 @@ export function OrdersPage() {
     }
     toast.info(`Loaded Order ${order.orderNo} into POS with ₹${order.advanceReceived} advance`)
     navigate("/billing")
+  }
+
+  const duplicate = async (order: Order) => {
+    const { id: _id, orderNo: _no, status: _s, statusHistory: _h, createdAt: _c, invoiceId: _i, ...rest } = order
+    const dup = await ordersService.add(
+      { ...rest, date: todayStr(), deliveryDate: undefined, advanceReceived: 0, createdBy: user?.name },
+      { status: "draft" },
+    )
+    toast.success(`Duplicated as ${dup.orderNo} (draft)`)
+  }
+
+  const cancel = async (order: Order) => {
+    if (!confirm(`Cancel order ${order.orderNo}?`)) return
+    await ordersService.setStatus(order.id!, "cancelled", { by: user?.name })
+    toast.success(`${order.orderNo} cancelled`)
   }
 
   return (
@@ -155,28 +191,42 @@ export function OrdersPage() {
                       </Select>
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7 text-muted-foreground"
-                          onClick={() => setTimelineOrder(o)}
-                          title="View timeline"
-                          aria-label="View order timeline"
-                        >
-                          <Clock className="size-3.5" />
-                        </Button>
-                        {!closed && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 text-xs font-medium text-primary hover:text-primary/80"
-                            onClick={() => handleDeliver(o)}
-                          >
-                            Deliver &amp; Bill
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="size-7" aria-label="Order actions">
+                            <MoreHorizontal className="size-4" />
                           </Button>
-                        )}
-                      </div>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => setDetailOrder(o)}>
+                            <Eye className="size-4" /> Details
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setTimelineOrder(o)}>
+                            <Clock className="size-4" /> Timeline
+                          </DropdownMenuItem>
+                          {!closed && (
+                            <DropdownMenuItem onClick={() => setAdvanceOrder(o)}>
+                              <IndianRupee className="size-4" /> Receive Advance
+                            </DropdownMenuItem>
+                          )}
+                          {!closed && (
+                            <DropdownMenuItem onClick={() => handleDeliver(o)}>
+                              <Truck className="size-4" /> Deliver &amp; Bill
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => void duplicate(o)}>
+                            <Copy className="size-4" /> Duplicate
+                          </DropdownMenuItem>
+                          {!closed && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem variant="destructive" onClick={() => void cancel(o)}>
+                                <XCircle className="size-4" /> Cancel Order
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 )
@@ -188,6 +238,8 @@ export function OrdersPage() {
 
       <OrderFormDialog open={formOpen} onOpenChange={setFormOpen} />
       <OrderTimelineDialog order={timelineOrder} onOpenChange={(o) => !o && setTimelineOrder(null)} />
+      <OrderDetailDialog order={detailOrder} onOpenChange={(o) => !o && setDetailOrder(null)} />
+      <ReceiveAdvanceDialog order={advanceOrder} onOpenChange={(o) => !o && setAdvanceOrder(null)} />
     </>
   )
 }
