@@ -1,12 +1,22 @@
 import { useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, Truck, Pencil, UserPlus, MoreHorizontal, BookOpen, IndianRupee, RotateCcw } from "lucide-react"
+import { Plus, Truck, Pencil, UserPlus, MoreHorizontal, BookOpen, IndianRupee, RotateCcw, Search, FileSpreadsheet } from "lucide-react"
 import type { PurchaseInvoice, Supplier } from "@/db/types"
 import { purchaseService, suppliersService, purchasePaymentsService, purchaseReturnsService } from "@/services/dbService"
 import { formatAmount, formatDate } from "@/lib/format"
+import { purchaseTypeLabel, PURCHASE_TYPES } from "@/lib/constants"
+import { exportObjectsToExcel } from "@/lib/excel"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
@@ -57,6 +67,69 @@ export function PurchasePage() {
     return m
   }, [suppliers, purchases, payments])
 
+  // ---- Purchases dashboard + filters/search ----
+  const [search, setSearch] = useState("")
+  const [vendorFilter, setVendorFilter] = useState("all")
+  const [typeFilter, setTypeFilter] = useState("all")
+  const [payFilter, setPayFilter] = useState("all")
+
+  const metrics = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    const month = today.slice(0, 7)
+    const rates = purchases.map((p) => p.goldRate ?? 0).filter((r) => r > 0)
+    return {
+      todayAmt: purchases.filter((p) => p.date === today).reduce((s, p) => s + p.netAmount, 0),
+      monthAmt: purchases.filter((p) => p.date.slice(0, 7) === month).reduce((s, p) => s + p.netAmount, 0),
+      pending: purchases.reduce((s, p) => s + p.balance, 0),
+      outVendors: new Set(purchases.filter((p) => p.balance > 0).map((p) => p.supplierId)).size,
+      bullion: purchases.filter((p) => p.purchaseType === "bullion").length,
+      avgRate: rates.length ? Math.round(rates.reduce((s, r) => s + r, 0) / rates.length) : 0,
+    }
+  }, [purchases])
+
+  const payStatus = (p: PurchaseInvoice): "paid" | "partial" | "pending" =>
+    p.balance <= 0.01 ? "paid" : p.amountPaid > 0 ? "partial" : "pending"
+
+  const filteredPurchases = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return purchases.filter((p) => {
+      const okText =
+        !q ||
+        p.purchaseNo.toLowerCase().includes(q) ||
+        supName(p.supplierId).toLowerCase().includes(q) ||
+        (p.billNo ?? "").toLowerCase().includes(q)
+      const okVendor = vendorFilter === "all" || String(p.supplierId) === vendorFilter
+      const okType = typeFilter === "all" || (p.purchaseType ?? "jewellery") === typeFilter
+      const okPay = payFilter === "all" || payStatus(p) === payFilter
+      return okText && okVendor && okType && okPay
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchases, suppliers, search, vendorFilter, typeFilter, payFilter])
+
+  const exportExcel = () => {
+    if (filteredPurchases.length === 0) return
+    const rows = filteredPurchases.map((p) => ({
+      "Purchase No": p.purchaseNo,
+      Vendor: supName(p.supplierId),
+      "Bill No": p.billNo ?? "",
+      Date: p.date,
+      Type: purchaseTypeLabel(p.purchaseType),
+      Gross: p.totalGrossAmount,
+      GST: p.cgst + p.sgst,
+      Net: p.netAmount,
+      Paid: p.amountPaid,
+      Balance: p.balance,
+      Status: payStatus(p),
+    }))
+    exportObjectsToExcel(`purchases-${new Date().toISOString().slice(0, 10)}.xlsx`, "Purchases", rows)
+  }
+
+  const PAY_TONE: Record<string, string> = {
+    paid: "bg-emerald-100 text-emerald-800",
+    partial: "bg-amber-100 text-amber-800",
+    pending: "bg-red-100 text-red-800",
+  }
+
   return (
     <>
       <PageHeader
@@ -64,9 +137,14 @@ export function PurchasePage() {
         subtitle={`${purchases.length} purchases · ${suppliers.length} suppliers`}
         actions={
           tab === "purchases" ? (
-            <Button size="sm" onClick={() => setPurchaseOpen(true)}>
-              <Plus className="size-4" /> New Purchase
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={exportExcel}>
+                <FileSpreadsheet className="size-4" /> Excel
+              </Button>
+              <Button size="sm" onClick={() => setPurchaseOpen(true)}>
+                <Plus className="size-4" /> New Purchase
+              </Button>
+            </div>
           ) : (
             <Button
               size="sm"
@@ -102,22 +180,93 @@ export function PurchasePage() {
               }
             />
           ) : (
-            <Table>
-              <TableHeader className="sticky top-0 bg-card">
-                <TableRow>
-                  <TableHead className="w-24">Purchase No</TableHead>
-                  <TableHead>Supplier</TableHead>
-                  <TableHead className="w-24">Bill No</TableHead>
-                  <TableHead className="w-24">Date</TableHead>
-                  <TableHead className="w-28 text-right">Gross</TableHead>
-                  <TableHead className="w-28 text-right">Net</TableHead>
-                  <TableHead className="w-24 text-right">Paid</TableHead>
-                  <TableHead className="w-28 text-right">Balance</TableHead>
-                  <TableHead className="w-16 text-right" />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {purchases.map((p) => (
+            <div className="space-y-3 p-4">
+              {/* Dashboard */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+                <Metric label="Today" value={`₹${formatAmount(metrics.todayAmt)}`} />
+                <Metric label="This Month" value={`₹${formatAmount(metrics.monthAmt)}`} />
+                <Metric label="Pending Payments" value={`₹${formatAmount(metrics.pending)}`} tone="red" />
+                <Metric label="Outstanding Vendors" value={String(metrics.outVendors)} />
+                <Metric label="Bullion Purchases" value={String(metrics.bullion)} />
+                <Metric label="Avg Gold Rate" value={metrics.avgRate ? `₹${formatAmount(metrics.avgRate)}/g` : "—"} />
+              </div>
+
+              {/* Toolbar */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative w-56">
+                  <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search purchase / vendor / bill"
+                    className="h-8 pl-8"
+                  />
+                </div>
+                <Select value={vendorFilter} onValueChange={setVendorFilter}>
+                  <SelectTrigger size="sm" className="w-40">
+                    <SelectValue placeholder="All vendors" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All vendors</SelectItem>
+                    {suppliers.map((s) => (
+                      <SelectItem key={s.id} value={String(s.id)}>
+                        {s.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger size="sm" className="w-36">
+                    <SelectValue placeholder="All types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All types</SelectItem>
+                    {PURCHASE_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        {t.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={payFilter} onValueChange={setPayFilter}>
+                  <SelectTrigger size="sm" className="w-32">
+                    <SelectValue placeholder="Payment" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Any payment</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="partial">Partial</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="ml-auto text-xs text-muted-foreground">{filteredPurchases.length} shown</span>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border bg-card">
+                <Table>
+                  <TableHeader className="sticky top-0 bg-card">
+                    <TableRow>
+                      <TableHead className="w-24">Purchase No</TableHead>
+                      <TableHead>Supplier</TableHead>
+                      <TableHead className="w-24">Bill No</TableHead>
+                      <TableHead className="w-24">Date</TableHead>
+                      <TableHead className="w-28 text-right">Gross</TableHead>
+                      <TableHead className="w-28 text-right">Net</TableHead>
+                      <TableHead className="w-24 text-right">Paid</TableHead>
+                      <TableHead className="w-28 text-right">Balance</TableHead>
+                      <TableHead className="w-24">Status</TableHead>
+                      <TableHead className="w-16 text-right" />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredPurchases.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
+                          No purchases match your filters.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {filteredPurchases.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.purchaseNo}</TableCell>
                     <TableCell>{supName(p.supplierId)}</TableCell>
@@ -144,6 +293,11 @@ export function PurchasePage() {
                     >
                       {p.balance > 0 ? formatAmount(p.balance) : "—"}
                     </TableCell>
+                    <TableCell>
+                      <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium capitalize", PAY_TONE[payStatus(p)])}>
+                        {payStatus(p)}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -164,9 +318,11 @@ export function PurchasePage() {
                       </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
           )}
         </TabsContent>
 
@@ -306,6 +462,15 @@ export function PurchasePage() {
         }}
       />
     </>
+  )
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone?: "red" }) {
+  return (
+    <div className="rounded-xl border bg-card p-3 shadow-sm">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div className={cn("mt-0.5 text-lg font-bold tabular", tone === "red" && "text-destructive")}>{value}</div>
+    </div>
   )
 }
 
