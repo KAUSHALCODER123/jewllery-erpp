@@ -11,8 +11,11 @@
 
 import Dexie, { type Table } from "dexie"
 import type {
+  BullionStock,
+  BullionMovement,
   Counter,
   Customer,
+  InventoryLedger,
   Item,
   Karigar,
   KarigarJob,
@@ -55,6 +58,9 @@ export class JewelDatabase extends Dexie {
   refinings!: Table<Refining, number>
   loan_payments!: Table<LoanPayment, number>
   refiners!: Table<Refiner, number>
+  bullion_stock!: Table<BullionStock, number>
+  bullion_movement!: Table<BullionMovement, number>
+  inventory_ledger!: Table<InventoryLedger, number>
 
   constructor(name: string) {
     super(name)
@@ -107,6 +113,13 @@ export class JewelDatabase extends Dexie {
     // v7: refiner master (Refining module — Phase 2).
     this.version(7).stores({
       refiners: "++id, name, kind",
+    })
+
+    // v8: bullion + inventory ledger (Refining module — Phase 3).
+    this.version(8).stores({
+      bullion_stock: "++id, &bullionNo, type, purity, status, refiningId, itemId",
+      bullion_movement: "++id, bullionId, date, type, refId",
+      inventory_ledger: "++id, itemId, bullionId, date, refType, refId",
     })
   }
 }

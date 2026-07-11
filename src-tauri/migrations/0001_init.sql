@@ -325,7 +325,10 @@ CREATE TABLE IF NOT EXISTS refinings (
   chargeGstAmount REAL,
   totalCharge     REAL,
   outputItemId    INTEGER,
+  bullionNo       TEXT,
   status          TEXT,
+  reversedAt      TEXT,
+  reversedBy      TEXT,
   createdBy       TEXT,
   notes           TEXT,
   createdAt       TEXT
@@ -347,6 +350,59 @@ CREATE TABLE IF NOT EXISTS refiners (
   updatedAt    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_refiners_name ON refiners(name);
+
+-- ---------- Refined-bullion stock ----------
+CREATE TABLE IF NOT EXISTS bullion_stock (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  bullionNo    TEXT NOT NULL UNIQUE,
+  type         TEXT NOT NULL,
+  purity       TEXT NOT NULL,
+  finePct      REAL,
+  weight       REAL NOT NULL DEFAULT 0,
+  refiningId   INTEGER,
+  itemId       INTEGER,
+  status       TEXT NOT NULL,
+  createdDate  TEXT NOT NULL,
+  createdBy    TEXT,
+  createdAt    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bullion_stock_status ON bullion_stock(status);
+CREATE INDEX IF NOT EXISTS idx_bullion_stock_refining ON bullion_stock(refiningId);
+
+-- ---------- Bullion weight movements ----------
+CREATE TABLE IF NOT EXISTS bullion_movement (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  bullionId  INTEGER NOT NULL,
+  date       TEXT NOT NULL,
+  type       TEXT NOT NULL,
+  weight     REAL NOT NULL DEFAULT 0,
+  refType    TEXT,
+  refId      INTEGER,
+  note       TEXT,
+  createdAt  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bullion_movement_bullion ON bullion_movement(bullionId);
+
+-- ---------- Unified inventory ledger ----------
+CREATE TABLE IF NOT EXISTS inventory_ledger (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  date         TEXT NOT NULL,
+  itemId       INTEGER,
+  bullionId    INTEGER,
+  refType      TEXT NOT NULL,
+  refId        INTEGER,
+  refNo        TEXT,
+  movement     TEXT NOT NULL,
+  weight       REAL NOT NULL DEFAULT 0,
+  description  TEXT,
+  statusFrom   TEXT,
+  statusTo     TEXT,
+  createdBy    TEXT,
+  createdAt    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_inventory_ledger_item ON inventory_ledger(itemId);
+CREATE INDEX IF NOT EXISTS idx_inventory_ledger_date ON inventory_ledger(date);
+CREATE INDEX IF NOT EXISTS idx_inventory_ledger_ref ON inventory_ledger(refType, refId);
 
 -- ---------- Document-number counters ----------
 CREATE TABLE IF NOT EXISTS counters (

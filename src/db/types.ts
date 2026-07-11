@@ -424,8 +424,13 @@ export interface Refining {
   totalCharge?: number
   /** The refined-bullion stock item created from this job. */
   outputItemId?: number
+  /** Bullion number (GB000001) produced by this job. */
+  bullionNo?: string
   /** Lifecycle: a reversed job is kept for audit but its movements are undone. */
   status?: "completed" | "reversed"
+  /** When the job was reversed, and by whom (audit trail). */
+  reversedAt?: string
+  reversedBy?: string
   /** Name of the user who recorded the job (audit trail). */
   createdBy?: string
   notes?: string
@@ -452,6 +457,71 @@ export interface Refiner {
   notes?: string
   createdAt?: string
   updatedAt?: string
+}
+
+/**
+ * A refined-bullion bar/lot produced by the Refining module. Numbered GB000001…
+ * It links to a sellable `items` row (so bullion is usable at the counter and in
+ * karigar issues) while carrying its own provenance back to the refining batch.
+ */
+export interface BullionStock {
+  id?: number
+  bullionNo: string
+  type: MetalType
+  purity: string
+  finePct?: number
+  /** Current weight in grams. */
+  weight: number
+  /** Refining batch that produced this bullion. */
+  refiningId?: number
+  /** Linked sellable stock item (POS/karigar integration). */
+  itemId?: number
+  status: "in_stock" | "consumed" | "sold" | "reversed"
+  /** Date the bullion was produced (ISO day). */
+  createdDate: string
+  createdBy?: string
+  createdAt?: string
+}
+
+/** A weight movement on a bullion lot (produced / consumed / sold / reversed). */
+export interface BullionMovement {
+  id?: number
+  bullionId: number
+  date: string
+  type: "produced" | "consumed" | "sold" | "adjusted" | "reversed"
+  /** Signed grams: + adds, − removes. */
+  weight: number
+  /** Source of the movement, e.g. "refining", "refining_reversal", "sale". */
+  refType?: string
+  refId?: number
+  note?: string
+  createdAt?: string
+}
+
+/**
+ * Unified inventory movement log — the single audit trail of stock/bullion
+ * weight moving in or out, written by refining today (and other modules later).
+ */
+export interface InventoryLedger {
+  id?: number
+  date: string
+  /** Affected stock item, if any. */
+  itemId?: number
+  /** Affected bullion lot, if any. */
+  bullionId?: number
+  /** e.g. "refining", "refining_reversal". */
+  refType: string
+  refId?: number
+  /** Human-readable reference (e.g. REF0001). */
+  refNo?: string
+  movement: "in" | "out"
+  /** Grams (always positive; direction is in `movement`). */
+  weight: number
+  description?: string
+  statusFrom?: string
+  statusTo?: string
+  createdBy?: string
+  createdAt?: string
 }
 
 /** Named monotonic counters used to mint sequential document numbers. */

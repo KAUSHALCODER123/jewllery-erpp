@@ -351,6 +351,40 @@ test("refining.create melts the source and mints refined bullion stock", async (
   expect(runs.some((s) => s.startsWith('UPDATE "items"'))).toBeTruthy() // source melted
   expect(runs.some((s) => s.includes('INSERT INTO "items"'))).toBeTruthy() // bullion minted
   expect(runs.some((s) => s.includes('INSERT INTO "refinings"'))).toBeTruthy()
+  // Phase 3: the atomic audit trail — bullion lot + movement + inventory ledger.
+  expect(runs.some((s) => s.includes('INSERT INTO "bullion_stock"'))).toBeTruthy()
+  expect(runs.some((s) => s.includes('INSERT INTO "bullion_movement"'))).toBeTruthy()
+  expect(runs.some((s) => s.includes('INSERT INTO "inventory_ledger"'))).toBeTruthy()
+})
+
+test("refining.reverse restores the source and voids the produced bullion", async () => {
+  const { exec, calls } = fakeExecutor([
+    {
+      match: /FROM "refinings" WHERE "id"/,
+      rows: [{ id: 1, refiningNo: "REF0001", status: "completed", sourceItemId: 3, outputItemId: 5, inputWt: 10 }],
+    },
+    { match: /FROM "items" WHERE "id"/, rows: [{ id: 5, status: "in_stock" }] },
+    { match: /FROM "bullion_stock" WHERE "refiningId"/, rows: [{ id: 7, itemId: 5, weight: 9, bullionNo: "GB000001" }] },
+  ])
+  const { refiningService } = makeSqliteServices(exec)
+  await refiningService.reverse(1, { by: "admin" })
+  const runs = calls.filter((c) => c.kind === "run").map((c) => c.sql)
+  expect(runs.some((s) => s.startsWith('UPDATE "items"'))).toBeTruthy() // source restored
+  expect(runs.some((s) => s.startsWith('DELETE FROM "items"'))).toBeTruthy() // bullion item removed
+  expect(runs.some((s) => s.startsWith('UPDATE "bullion_stock"'))).toBeTruthy() // bullion voided
+  expect(runs.some((s) => s.includes('INSERT INTO "inventory_ledger"'))).toBeTruthy()
+  const refUpdate = calls.find((c) => c.sql.startsWith('UPDATE "refinings"'))!
+  expect(refUpdate.params).toContain("reversed")
+})
+
+test("refining.reverse refuses when the bullion was already sold", async () => {
+  const { exec, calls } = fakeExecutor([
+    { match: /FROM "refinings" WHERE "id"/, rows: [{ id: 1, refiningNo: "REF0001", status: "completed", outputItemId: 5, inputWt: 10 }] },
+    { match: /FROM "items" WHERE "id"/, rows: [{ id: 5, status: "sold" }] },
+  ])
+  const { refiningService } = makeSqliteServices(exec)
+  await expect(refiningService.reverse(1)).rejects.toThrow(/already been sold/i)
+  expect(sqlList(calls)).toContain("ROLLBACK")
 })
 
 test("schemes.addPayment guards against double-paying a slot", async () => {

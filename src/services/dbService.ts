@@ -34,6 +34,8 @@ import type {
   PurchaseInvoice,
   PurchaseItem,
   Receipt,
+  BullionStock,
+  InventoryLedger,
   Refining,
   Refiner,
   SalesInvoice,
@@ -714,45 +716,236 @@ const purchaseServiceDexie = {
 /* Metal Refining (Ghalai)                                            */
 /* ------------------------------------------------------------------ */
 
+/** Fineness % parsed from an output purity label like "24K (999)" → 99.9. */
+const finePctFromPurity = (purity: string): number | undefined => {
+  const paren = purity.match(/\((\d{3})\)/)
+  if (paren) return Number((Number(paren[1]) / 10).toFixed(2))
+  const k = purity.match(/(\d{1,2})\s*K/i)
+  if (k) return Number(((Number(k[1]) / 24) * 100).toFixed(2))
+  return undefined
+}
+
 const refiningServiceDexie = {
   getAll: (): Promise<Refining[]> => db.refinings.orderBy("id").reverse().toArray(),
 
+  get: (id: number): Promise<Refining | undefined> => db.refinings.get(id),
+
+  /** Inventory-ledger rows tied to a refining job (melt-out + produce-in + any reversal). */
+  getLedger: (refiningId: number): Promise<InventoryLedger[]> =>
+    db.inventory_ledger.where("refId").equals(refiningId).sortBy("id"),
+
+  /** Bullion produced by a refining job. */
+  getBullion: (refiningId: number): Promise<BullionStock[]> =>
+    db.bullion_stock.where("refiningId").equals(refiningId).toArray(),
+
   /**
-   * Record a refining job: mint a number, mark the source scrap item melted,
-   * and (optionally) create the refined-bullion output as a new stock item.
+   * Record a refining job as one atomic transaction: consume the source scrap,
+   * mint the refined bullion (a GB-numbered bullion lot linked to a sellable
+   * stock item), and write the inventory-ledger + bullion-movement audit trail.
+   * A mid-failure can never orphan a melted item or leave a stray bullion.
    */
   async create(
     input: Omit<Refining, "id" | "refiningNo" | "createdAt" | "outputItemId">,
     opts: { addToStock?: boolean; outputCategory?: string; outputName?: string } = {},
   ): Promise<Refining> {
-    // Atomic: melt source, mint output stock, and record the job together so a
-    // mid-failure can never orphan a melted item or leave a stray bullion item.
-    return db.transaction("rw", [db.refinings, db.items, db.counters], async () => {
-      const { code: refiningNo } = await nextSequence("refining", { prefix: "REF" })
-      let outputItemId: number | undefined
+    return db.transaction(
+      "rw",
+      [
+        db.refinings,
+        db.items,
+        db.counters,
+        db.bullion_stock,
+        db.bullion_movement,
+        db.inventory_ledger,
+      ],
+      async () => {
+        const { code: refiningNo } = await nextSequence("refining", { prefix: "REF" })
+        const today = input.date
 
-      if (input.sourceItemId) {
-        await db.items.update(input.sourceItemId, { status: "melted" })
-      }
-      if (opts.addToStock !== false && input.outputWt > 0) {
-        const created = await itemsServiceDexie.add({
-          name: opts.outputName ?? `Refined ${input.type} ${input.outputPurity}`,
-          type: input.type,
-          category: opts.outputCategory ?? "Other",
-          purity: input.outputPurity,
-          grossWt: input.outputWt,
-          stoneWt: 0,
-          makingChargePerGm: 0,
-          quantity: 1,
-          tagPrefix: "BUL",
+        // 1) Header first, so ledger/movement rows can reference its id.
+        const createdAt = nowIso()
+        const status = input.status ?? "completed"
+        const headerId = await db.refinings.add({
+          ...input,
+          refiningNo,
+          status,
+          createdAt,
+        } as Refining)
+
+        // 2) Consume the source scrap (if tracked) + ledger OUT.
+        if (input.sourceItemId) {
+          const src = await db.items.get(input.sourceItemId)
+          await db.items.update(input.sourceItemId, { status: "melted" })
+          await db.inventory_ledger.add({
+            date: today,
+            itemId: input.sourceItemId,
+            refType: "refining",
+            refId: headerId,
+            refNo: refiningNo,
+            movement: "out",
+            weight: src?.grossWt ?? input.inputWt,
+            description: `Melted for refining ${refiningNo}`,
+            statusFrom: src?.status ?? "in_stock",
+            statusTo: "melted",
+            createdBy: input.createdBy,
+            createdAt: nowIso(),
+          })
+        }
+
+        // 3) Produce bullion: sellable item + GB bullion lot + movement + ledger IN.
+        let outputItemId: number | undefined
+        let bullionNo: string | undefined
+        if (opts.addToStock !== false && input.outputWt > 0) {
+          const created = await itemsServiceDexie.add({
+            name: opts.outputName ?? `Refined ${input.type} ${input.outputPurity}`,
+            type: input.type,
+            category: opts.outputCategory ?? "Other",
+            purity: input.outputPurity,
+            grossWt: input.outputWt,
+            stoneWt: 0,
+            makingChargePerGm: 0,
+            quantity: 1,
+            tagPrefix: "BUL",
+          })
+          outputItemId = created.id
+          bullionNo = (await nextSequence("bullion", { prefix: "GB", pad: 6 })).code
+          const bullionId = await db.bullion_stock.add({
+            bullionNo,
+            type: input.type,
+            purity: input.outputPurity,
+            finePct: finePctFromPurity(input.outputPurity),
+            weight: input.outputWt,
+            refiningId: headerId,
+            itemId: outputItemId,
+            status: "in_stock",
+            createdDate: today,
+            createdBy: input.createdBy,
+            createdAt: nowIso(),
+          })
+          await db.bullion_movement.add({
+            bullionId,
+            date: today,
+            type: "produced",
+            weight: input.outputWt,
+            refType: "refining",
+            refId: headerId,
+            note: refiningNo,
+            createdAt: nowIso(),
+          })
+          await db.inventory_ledger.add({
+            date: today,
+            itemId: outputItemId,
+            bullionId,
+            refType: "refining",
+            refId: headerId,
+            refNo: refiningNo,
+            movement: "in",
+            weight: input.outputWt,
+            description: `Refined bullion ${bullionNo}`,
+            statusTo: "in_stock",
+            createdBy: input.createdBy,
+            createdAt: nowIso(),
+          })
+        }
+
+        // 4) Backfill the header with the produced references.
+        await db.refinings.update(headerId, { outputItemId, bullionNo })
+        return { ...input, refiningNo, status, createdAt, outputItemId, bullionNo, id: headerId } as Refining
+      },
+    )
+  },
+
+  /**
+   * Reverse a completed job (never a hard delete): restore the melted source,
+   * void the produced bullion + its stock item, and write reversing ledger and
+   * movement entries. Blocked if the bullion has already been sold.
+   */
+  async reverse(refiningId: number, opts: { by?: string } = {}): Promise<void> {
+    return db.transaction(
+      "rw",
+      [
+        db.refinings,
+        db.items,
+        db.bullion_stock,
+        db.bullion_movement,
+        db.inventory_ledger,
+      ],
+      async () => {
+        const ref = await db.refinings.get(refiningId)
+        if (!ref) throw new Error("Refining job not found")
+        if (ref.status === "reversed") throw new Error("This job is already reversed")
+
+        const today = todayStr()
+
+        // Guard: a sold bullion cannot be cleanly reversed.
+        if (ref.outputItemId) {
+          const item = await db.items.get(ref.outputItemId)
+          if (item?.status === "sold") {
+            throw new Error("The refined bullion has already been sold — cannot reverse")
+          }
+        }
+
+        // Restore the source scrap.
+        if (ref.sourceItemId) {
+          await db.items.update(ref.sourceItemId, { status: "in_stock" })
+          await db.inventory_ledger.add({
+            date: today,
+            itemId: ref.sourceItemId,
+            refType: "refining_reversal",
+            refId: refiningId,
+            refNo: ref.refiningNo,
+            movement: "in",
+            weight: ref.inputWt,
+            description: `Reversal of ${ref.refiningNo} — scrap restored`,
+            statusFrom: "melted",
+            statusTo: "in_stock",
+            createdBy: opts.by,
+            createdAt: nowIso(),
+          })
+        }
+
+        // Void the produced bullion + its stock item.
+        const bullions = await db.bullion_stock.where("refiningId").equals(refiningId).toArray()
+        for (const b of bullions) {
+          if (b.itemId) {
+            const it = await db.items.get(b.itemId)
+            if (it && it.status !== "sold") await db.items.delete(b.itemId)
+          }
+          await db.bullion_stock.update(b.id!, { status: "reversed" })
+          await db.bullion_movement.add({
+            bullionId: b.id!,
+            date: today,
+            type: "reversed",
+            weight: -b.weight,
+            refType: "refining_reversal",
+            refId: refiningId,
+            note: ref.refiningNo,
+            createdAt: nowIso(),
+          })
+          await db.inventory_ledger.add({
+            date: today,
+            itemId: b.itemId,
+            bullionId: b.id,
+            refType: "refining_reversal",
+            refId: refiningId,
+            refNo: ref.refiningNo,
+            movement: "out",
+            weight: b.weight,
+            description: `Reversal of ${ref.refiningNo} — bullion ${b.bullionNo} voided`,
+            statusFrom: "in_stock",
+            statusTo: "reversed",
+            createdBy: opts.by,
+            createdAt: nowIso(),
+          })
+        }
+
+        await db.refinings.update(refiningId, {
+          status: "reversed",
+          reversedAt: nowIso(),
+          reversedBy: opts.by,
         })
-        outputItemId = created.id
-      }
-
-      const record: Refining = { ...input, refiningNo, outputItemId, createdAt: nowIso() }
-      const id = await db.refinings.add(record)
-      return { ...record, id }
-    })
+      },
+    )
   },
 }
 

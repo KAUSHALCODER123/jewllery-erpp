@@ -32,7 +32,17 @@ import type {
   PurchaseDraft,
   SaleDraft,
 } from "@/services/dbService"
-import type { Order, Receipt, Refiner, Scheme, SchemeAccount, SchemeScheduleRow, Supplier } from "@/db/types"
+import type {
+  BullionStock,
+  InventoryLedger,
+  Order,
+  Receipt,
+  Refiner,
+  Scheme,
+  SchemeAccount,
+  SchemeScheduleRow,
+  Supplier,
+} from "@/db/types"
 import { computeLoanDues } from "@/features/girvi/interest"
 import { makeTableRepo, withTransaction, tauriExecutor, type SqlExecutor } from "@/db/sqliteRepo"
 import { decodeRow } from "@/db/sqlBuilder"
@@ -97,6 +107,15 @@ export async function nextSequenceRaw(
   return { value, code: `${prefix}${String(value).padStart(pad, "0")}` }
 }
 
+/** Fineness % parsed from an output purity label like "24K (999)" → 99.9. */
+const finePctFromPurity = (purity: string): number | undefined => {
+  const paren = purity.match(/\((\d{3})\)/)
+  if (paren) return Number((Number(paren[1]) / 10).toFixed(2))
+  const k = purity.match(/(\d{1,2})\s*K/i)
+  if (k) return Number(((Number(k[1]) / 24) * 100).toFixed(2))
+  return undefined
+}
+
 /**
  * Build the SQLite services bound to an executor. `systemExec` targets the
  * shared system DB (companies/users) — companies live there, not in the
@@ -116,6 +135,9 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
   const karigarJobsRepo = makeTableRepo("karigar_jobs", typesFor("karigar_jobs"), exec)
   const refiningsRepo = makeTableRepo("refinings", typesFor("refinings"), exec)
   const refinersRepo = makeTableRepo("refiners", typesFor("refiners"), exec)
+  const bullionStockRepo = makeTableRepo("bullion_stock", typesFor("bullion_stock"), exec)
+  const bullionMovementRepo = makeTableRepo("bullion_movement", typesFor("bullion_movement"), exec)
+  const inventoryLedgerRepo = makeTableRepo("inventory_ledger", typesFor("inventory_ledger"), exec)
   const purchaseRepo = makeTableRepo("purchase_invoices", typesFor("purchase_invoices"), exec)
   const purchaseItemsRepo = makeTableRepo("purchase_items", typesFor("purchase_items"), exec)
   const schemePaymentsRepo = makeTableRepo("scheme_payments", typesFor("scheme_payments"), exec)
@@ -536,36 +558,127 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
 
   const refiningService = {
     getAll: () => refiningsRepo.getAll(["id", "DESC"]) as unknown as Promise<Refining[]>,
+    get: (id: number) => refiningsRepo.get(id) as unknown as Promise<Refining | undefined>,
+    getLedger: (refiningId: number) =>
+      inventoryLedgerRepo.where({ refId: refiningId } as never) as unknown as Promise<InventoryLedger[]>,
+    getBullion: (refiningId: number) =>
+      bullionStockRepo.where({ refiningId } as never) as unknown as Promise<BullionStock[]>,
 
-    /** Melt a source scrap item and (optionally) mint the refined-bullion output. */
+    /**
+     * Atomic refining: consume the source scrap, mint the GB-numbered bullion
+     * (linked to a sellable item), and write the inventory-ledger + bullion
+     * movement audit trail. Mirrors the Dexie implementation.
+     */
     async create(
       input: Omit<Refining, "id" | "refiningNo" | "createdAt" | "outputItemId">,
       opts: { addToStock?: boolean; outputCategory?: string; outputName?: string } = {},
     ): Promise<Refining> {
       return withTransaction(exec, async () => {
         const { code: refiningNo } = await nextSequenceRaw(exec, "refining", { prefix: "REF" })
-        let outputItemId: number | undefined
+        const today = input.date
+        const createdAt = nowIso()
+        const status = input.status ?? "completed"
+        const header = (await refiningsRepo.add({
+          ...input,
+          refiningNo,
+          status,
+          createdAt,
+        } as never)) as { id: number }
+        const headerId = header.id
 
         if (input.sourceItemId) {
+          const src = (await itemsRepo.get(input.sourceItemId)) as unknown as
+            | { grossWt?: number; status?: string }
+            | undefined
           await itemsRepo.update(input.sourceItemId, { status: "melted" })
+          await inventoryLedgerRepo.add({
+            date: today, itemId: input.sourceItemId, refType: "refining", refId: headerId,
+            refNo: refiningNo, movement: "out", weight: src?.grossWt ?? input.inputWt,
+            description: `Melted for refining ${refiningNo}`, statusFrom: src?.status ?? "in_stock",
+            statusTo: "melted", createdBy: input.createdBy, createdAt: nowIso(),
+          } as never)
         }
+
+        let outputItemId: number | undefined
+        let bullionNo: string | undefined
         if (opts.addToStock !== false && input.outputWt > 0) {
           const created = await addItemRaw({
             name: opts.outputName ?? `Refined ${input.type} ${input.outputPurity}`,
-            type: input.type,
-            category: opts.outputCategory ?? "Other",
-            purity: input.outputPurity,
-            grossWt: input.outputWt,
-            stoneWt: 0,
-            makingChargePerGm: 0,
-            quantity: 1,
-            tagPrefix: "BUL",
+            type: input.type, category: opts.outputCategory ?? "Other", purity: input.outputPurity,
+            grossWt: input.outputWt, stoneWt: 0, makingChargePerGm: 0, quantity: 1, tagPrefix: "BUL",
           })
           outputItemId = created.id
+          bullionNo = (await nextSequenceRaw(exec, "bullion", { prefix: "GB", pad: 6 })).code
+          const bullion = (await bullionStockRepo.add({
+            bullionNo, type: input.type, purity: input.outputPurity,
+            finePct: finePctFromPurity(input.outputPurity), weight: input.outputWt,
+            refiningId: headerId, itemId: outputItemId, status: "in_stock",
+            createdDate: today, createdBy: input.createdBy, createdAt: nowIso(),
+          } as never)) as { id: number }
+          await bullionMovementRepo.add({
+            bullionId: bullion.id, date: today, type: "produced", weight: input.outputWt,
+            refType: "refining", refId: headerId, note: refiningNo, createdAt: nowIso(),
+          } as never)
+          await inventoryLedgerRepo.add({
+            date: today, itemId: outputItemId, bullionId: bullion.id, refType: "refining",
+            refId: headerId, refNo: refiningNo, movement: "in", weight: input.outputWt,
+            description: `Refined bullion ${bullionNo}`, statusTo: "in_stock",
+            createdBy: input.createdBy, createdAt: nowIso(),
+          } as never)
         }
 
-        const record: Omit<Refining, "id"> = { ...input, refiningNo, outputItemId, createdAt: nowIso() }
-        return (await refiningsRepo.add(record as never)) as unknown as Refining
+        await refiningsRepo.update(headerId, { outputItemId, bullionNo })
+        return { ...input, refiningNo, status, createdAt, outputItemId, bullionNo, id: headerId } as unknown as Refining
+      })
+    },
+
+    /** Reverse a completed job (never a hard delete). Mirrors the Dexie logic. */
+    async reverse(refiningId: number, opts: { by?: string } = {}): Promise<void> {
+      await withTransaction(exec, async () => {
+        const ref = (await refiningsRepo.get(refiningId)) as unknown as Refining | undefined
+        if (!ref) throw new Error("Refining job not found")
+        if (ref.status === "reversed") throw new Error("This job is already reversed")
+        const today = nowIso().slice(0, 10)
+
+        if (ref.outputItemId) {
+          const item = (await itemsRepo.get(ref.outputItemId)) as unknown as { status?: string } | undefined
+          if (item?.status === "sold") {
+            throw new Error("The refined bullion has already been sold — cannot reverse")
+          }
+        }
+
+        if (ref.sourceItemId) {
+          await itemsRepo.update(ref.sourceItemId, { status: "in_stock" })
+          await inventoryLedgerRepo.add({
+            date: today, itemId: ref.sourceItemId, refType: "refining_reversal", refId: refiningId,
+            refNo: ref.refiningNo, movement: "in", weight: ref.inputWt,
+            description: `Reversal of ${ref.refiningNo} — scrap restored`, statusFrom: "melted",
+            statusTo: "in_stock", createdBy: opts.by, createdAt: nowIso(),
+          } as never)
+        }
+
+        const bullions = (await bullionStockRepo.where({ refiningId } as never)) as unknown as BullionStock[]
+        for (const b of bullions) {
+          if (b.itemId) {
+            const it = (await itemsRepo.get(b.itemId)) as unknown as { status?: string } | undefined
+            if (it && it.status !== "sold") await itemsRepo.remove(b.itemId)
+          }
+          await bullionStockRepo.update(b.id!, { status: "reversed" })
+          await bullionMovementRepo.add({
+            bullionId: b.id, date: today, type: "reversed", weight: -b.weight,
+            refType: "refining_reversal", refId: refiningId, note: ref.refiningNo, createdAt: nowIso(),
+          } as never)
+          await inventoryLedgerRepo.add({
+            date: today, itemId: b.itemId, bullionId: b.id, refType: "refining_reversal", refId: refiningId,
+            refNo: ref.refiningNo, movement: "out", weight: b.weight,
+            description: `Reversal of ${ref.refiningNo} — bullion ${b.bullionNo} voided`,
+            statusFrom: "in_stock", statusTo: "reversed", createdBy: opts.by, createdAt: nowIso(),
+          } as never)
+        }
+
+        await refiningsRepo.update(refiningId, {
+          status: "reversed", reversedAt: nowIso(), reversedBy: opts.by,
+        })
       })
     },
   }

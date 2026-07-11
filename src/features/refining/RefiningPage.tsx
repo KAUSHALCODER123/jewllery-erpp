@@ -15,9 +15,10 @@ import {
   Building2,
   User,
   Receipt as ReceiptIcon,
+  RotateCcw,
 } from "lucide-react"
 import { toast } from "sonner"
-import type { MetalType, Refiner } from "@/db/types"
+import type { MetalType, Refiner, Refining } from "@/db/types"
 import { itemsService, refiningService, refinersService, todayStr } from "@/services/dbService"
 import {
   METAL_TYPES,
@@ -115,9 +116,11 @@ export function RefiningPage() {
   const [refinerDialogOpen, setRefinerDialogOpen] = useState(false)
   const [editRefiner, setEditRefiner] = useState<Refiner | null>(null)
 
-  // ---- History filters ----
+  // ---- History filters + reversal ----
   const [histSearch, setHistSearch] = useState("")
   const [histScrap, setHistScrap] = useState("all")
+  const [reverseTarget, setReverseTarget] = useState<Refining | null>(null)
+  const [reversing, setReversing] = useState(false)
 
   const isGold = type === "gold"
   const usingKarat = isGold && karat !== "Custom"
@@ -242,6 +245,20 @@ export function RefiningPage() {
       return okScrap && okText
     })
   }, [history, histSearch, histScrap])
+
+  const doReverse = async () => {
+    if (!reverseTarget?.id) return
+    setReversing(true)
+    try {
+      await refiningService.reverse(reverseTarget.id, { by: user?.name })
+      toast.success(`${reverseTarget.refiningNo} reversed — scrap restored, bullion voided`)
+      setReverseTarget(null)
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setReversing(false)
+    }
+  }
 
   const deleteRefiner = async (r: Refiner) => {
     if (!r.id) return
@@ -604,12 +621,13 @@ export function RefiningPage() {
                     <TableHead className="w-16 text-right">Rec.%</TableHead>
                     <TableHead className="w-24 text-right">Charge</TableHead>
                     <TableHead className="w-24">Status</TableHead>
+                    <TableHead className="w-12" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {filteredHistory.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
+                      <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
                         {(history ?? []).length === 0
                           ? "No refining jobs yet. Melt some scrap to get started."
                           : "No jobs match your filters."}
@@ -642,6 +660,20 @@ export function RefiningPage() {
                           >
                             {reversed ? "Reversed" : "Completed"}
                           </span>
+                        </TableCell>
+                        <TableCell>
+                          {!reversed && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 text-muted-foreground hover:text-destructive"
+                              onClick={() => setReverseTarget(r)}
+                              title="Reverse this job"
+                              aria-label="Reverse refining job"
+                            >
+                              <RotateCcw className="size-3.5" />
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     )
@@ -773,6 +805,29 @@ export function RefiningPage() {
             <Button onClick={() => void doRefine()} disabled={saving}>
               {saving ? <Loader2 className="size-4 animate-spin" /> : <Flame className="size-4" />}
               {saving ? "Refining…" : "Confirm & Refine"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ---- Reverse confirmation ---- */}
+      <Dialog open={!!reverseTarget} onOpenChange={(o) => !reversing && !o && setReverseTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reverse {reverseTarget?.refiningNo}?</DialogTitle>
+            <DialogDescription>
+              This undoes the job's inventory movements — the melted scrap is restored to
+              stock and the produced bullion is voided. The record is kept and marked
+              reversed (never deleted). Blocked if the bullion was already sold.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReverseTarget(null)} disabled={reversing}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => void doReverse()} disabled={reversing}>
+              {reversing ? <Loader2 className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
+              {reversing ? "Reversing…" : "Reverse job"}
             </Button>
           </DialogFooter>
         </DialogContent>
