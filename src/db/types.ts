@@ -262,6 +262,12 @@ export interface PurchaseInvoice {
   amountPaid: number
   /** netAmount - amountPaid. Positive => shop still owes the supplier. */
   balance: number
+  /** Kind of purchase (jewellery, bullion, silver, old gold…). */
+  purchaseType?: string
+  /** How the payment was / will be made. */
+  paymentMode?: PaymentMode
+  /** Day's gold rate the lines were priced at (₹/g). */
+  goldRate?: number
   notes?: string
   createdAt?: string
 }
@@ -274,10 +280,21 @@ export interface PurchaseItem {
   type: MetalType
   purity: string
   grossWt: number
+  /** Stone/other weight deducted from gross to get net metal weight. */
+  stoneWt?: number
   netWt: number
+  /** Pure metal content = netWt × fineness(purity). */
+  pureGoldWt?: number
   rate: number
   makingAmount: number
-  /** rate × netWt + making (line total before tax). */
+  stoneCost?: number
+  otherCharges?: number
+  discount?: number
+  /** Landed cost per gram of net weight. */
+  costPerGram?: number
+  huid?: string
+  hallmark?: string
+  /** rate × netWt + making + stone + other − discount (line total before tax). */
   amount: number
 }
 

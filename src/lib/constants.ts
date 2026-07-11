@@ -28,6 +28,21 @@ export const CATEGORIES: CategoryDef[] = [
 export const categoryByLabel = (label: string): CategoryDef | undefined =>
   CATEGORIES.find((c) => c.label === label)
 
+/** Purchase types — each defaults the metal for new item lines. */
+export const PURCHASE_TYPES: { value: string; label: string; metal: MetalType }[] = [
+  { value: "jewellery", label: "Jewellery", metal: "gold" },
+  { value: "bullion", label: "Bullion", metal: "gold" },
+  { value: "silver", label: "Silver", metal: "silver" },
+  { value: "loose_stone", label: "Loose Stone", metal: "other" },
+  { value: "loose_diamond", label: "Loose Diamond", metal: "other" },
+  { value: "old_gold", label: "Old Gold", metal: "gold" },
+  { value: "exchange", label: "Customer Exchange", metal: "gold" },
+  { value: "custom", label: "Custom", metal: "other" },
+]
+
+export const purchaseTypeLabel = (v?: string): string =>
+  PURCHASE_TYPES.find((t) => t.value === v)?.label ?? "Jewellery"
+
 export const METAL_TYPES: { label: string; value: MetalType }[] = [
   { label: "Gold", value: "gold" },
   { label: "Silver", value: "silver" },

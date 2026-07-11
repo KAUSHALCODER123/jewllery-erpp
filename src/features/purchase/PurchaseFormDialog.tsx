@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, Trash2, UserPlus } from "lucide-react"
+import { Plus, Trash2, UserPlus, ChevronDown, ChevronRight } from "lucide-react"
 import { toast } from "sonner"
-import type { MetalType } from "@/db/types"
+import type { MetalType, PaymentMode } from "@/db/types"
 import {
   purchaseService,
   suppliersService,
@@ -12,7 +12,7 @@ import {
 import type { PurchaseDraft } from "@/services/dbService"
 import { formatAmount, wt } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { CATEGORIES, categoryByLabel } from "@/lib/constants"
+import { CATEGORIES, categoryByLabel, PURCHASE_TYPES } from "@/lib/constants"
 import { GST_RATES } from "@/features/pos/calc"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -42,10 +42,13 @@ interface Row {
   category: string
   purity: string
   grossWt: number
-  netWt: number
+  stoneWt: number
   rate: number
-  makingAmount: number
-  /** Add this line to live inventory as a tagged, sellable item. */
+  makingPerGm: number
+  stoneCost: number
+  otherCharges: number
+  discount: number
+  huid: string
   addToStock: boolean
 }
 
@@ -54,20 +57,41 @@ const rid = () =>
     ? crypto.randomUUID()
     : `r${Date.now()}${Math.floor(Math.random() * 1e6)}`
 
-const newRow = (): Row => ({
+const round2 = (n: number) => Number((Number.isFinite(n) ? n : 0).toFixed(2))
+const round3 = (n: number) => Number((Number.isFinite(n) ? n : 0).toFixed(3))
+
+/** Fineness % from a purity string like "22K", "916", "22K (916)". */
+const finePct = (purity: string): number => {
+  const paren = purity.match(/\((\d{3})\)/)
+  if (paren) return Number(paren[1]) / 10
+  const k = purity.match(/(\d{1,2})\s*K/i)
+  if (k) return (Number(k[1]) / 24) * 100
+  const n = Number(purity)
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : 0
+}
+
+const newRow = (metal: MetalType = "gold", rate = 0): Row => ({
   id: rid(),
   description: "",
-  type: "gold",
+  type: metal,
   category: "Ring",
   purity: "22K",
   grossWt: 0,
-  netWt: 0,
-  rate: 0,
-  makingAmount: 0,
+  stoneWt: 0,
+  rate,
+  makingPerGm: 0,
+  stoneCost: 0,
+  otherCharges: 0,
+  discount: 0,
+  huid: "",
   addToStock: true,
 })
 
-const rowAmount = (r: Row) => Number((r.rate * r.netWt + r.makingAmount).toFixed(2))
+const rowNet = (r: Row) => Math.max(0, round3(r.grossWt - r.stoneWt))
+const rowMaking = (r: Row) => round2(rowNet(r) * r.makingPerGm)
+const rowAmount = (r: Row) =>
+  round2(rowNet(r) * r.rate + rowMaking(r) + r.stoneCost + r.otherCharges - r.discount)
+const rowPure = (r: Row) => round3(rowNet(r) * (finePct(r.purity) / 100))
 
 export function PurchaseFormDialog({
   open,
@@ -77,48 +101,94 @@ export function PurchaseFormDialog({
   onOpenChange: (o: boolean) => void
 }) {
   const suppliers = useLiveData(() => suppliersService.getAll(), [], [])
+  const existing = useLiveData(() => purchaseService.getInvoices(), [], [])
   const [supplierId, setSupplierId] = useState("")
+  const [purchaseType, setPurchaseType] = useState("jewellery")
   const [billNo, setBillNo] = useState("")
   const [date, setDate] = useState(todayStr())
+  const [goldRate, setGoldRate] = useState(0)
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>("cash")
   const [rows, setRows] = useState<Row[]>([newRow()])
   const [gstRate, setGstRate] = useState(3)
   const [amountPaid, setAmountPaid] = useState(0)
+  const [markup, setMarkup] = useState(0)
+  const [advOpen, setAdvOpen] = useState(false)
   const [supOpen, setSupOpen] = useState(false)
 
   useEffect(() => {
-    if (open) {
-      setSupplierId("")
-      setBillNo("")
-      setDate(todayStr())
-      setRows([newRow()])
-      setGstRate(3)
-      setAmountPaid(0)
-    }
+    if (!open) return
+    setSupplierId("")
+    setPurchaseType("jewellery")
+    setBillNo("")
+    setDate(todayStr())
+    setGoldRate(0)
+    setPaymentMode("cash")
+    setRows([newRow()])
+    setGstRate(3)
+    setAmountPaid(0)
+    setMarkup(0)
+    setAdvOpen(false)
   }, [open])
 
   const update = (id: string, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)))
 
-  const gross = rows.reduce((s, r) => s + rowAmount(r), 0)
-  const cgst = Number(((gross * (gstRate / 2)) / 100).toFixed(2))
-  const sgst = cgst
-  const net = Number((gross + cgst + sgst).toFixed(2))
-  const balance = Number((net - amountPaid).toFixed(2))
+  const onType = (v: string) => {
+    setPurchaseType(v)
+    const metal = PURCHASE_TYPES.find((t) => t.value === v)?.metal ?? "gold"
+    setRows((rs) => rs.map((r) => ({ ...r, type: metal })))
+  }
+  const onGoldRate = (v: number) => {
+    setGoldRate(v)
+    setRows((rs) => rs.map((r) => ({ ...r, rate: r.rate === goldRate || r.rate === 0 ? v : r.rate })))
+  }
+  const metalForNew = PURCHASE_TYPES.find((t) => t.value === purchaseType)?.metal ?? "gold"
+
+  const t = useMemo(() => {
+    const gross = round2(rows.reduce((s, r) => s + rowAmount(r), 0))
+    const cgst = round2((gross * (gstRate / 2)) / 100)
+    const net = round2(gross + cgst * 2)
+    const totalNet = round3(rows.reduce((s, r) => s + rowNet(r), 0))
+    const totalPure = round3(rows.reduce((s, r) => s + rowPure(r), 0))
+    const totalGrossWt = round3(rows.reduce((s, r) => s + r.grossWt, 0))
+    const avgCostPerGram = totalNet > 0 ? round2(gross / totalNet) : 0
+    const estSelling = round2(gross * (1 + markup / 100))
+    const estProfit = round2(estSelling - gross)
+    const margin = estSelling > 0 ? round2((estProfit / estSelling) * 100) : 0
+    return { gross, cgst, net, totalNet, totalPure, totalGrossWt, avgCostPerGram, estSelling, estProfit, margin }
+  }, [rows, gstRate, markup])
+
+  const balance = round2(t.net - amountPaid)
 
   const save = async () => {
     if (!supplierId) return toast.error("Select a supplier")
     const items = rows.filter((r) => r.description.trim() || r.grossWt > 0)
     if (items.length === 0) return toast.error("Add at least one item")
+    if (items.some((r) => r.grossWt < 0 || r.stoneWt < 0 || r.rate < 0 || r.makingPerGm < 0 || r.discount < 0))
+      return toast.error("Weights and amounts can't be negative")
+    if (billNo.trim()) {
+      const dup = existing.some(
+        (inv) =>
+          inv.supplierId === Number(supplierId) &&
+          (inv.billNo ?? "").trim().toLowerCase() === billNo.trim().toLowerCase(),
+      )
+      if (dup) return toast.error(`Invoice ${billNo} is already recorded for this supplier`)
+    }
+    const huids = items.map((r) => r.huid.trim().toUpperCase()).filter(Boolean)
+    if (new Set(huids).size !== huids.length) return toast.error("Duplicate HUID in this purchase")
 
     const draft: PurchaseDraft = {
       invoice: {
         supplierId: Number(supplierId),
         billNo: billNo.trim() || undefined,
         date,
-        totalGrossAmount: Number(gross.toFixed(2)),
-        cgst,
-        sgst,
-        netAmount: net,
+        purchaseType,
+        paymentMode,
+        goldRate: goldRate || undefined,
+        totalGrossAmount: t.gross,
+        cgst: t.cgst,
+        sgst: t.cgst,
+        netAmount: t.net,
         amountPaid,
         balance,
       },
@@ -127,16 +197,21 @@ export function PurchaseFormDialog({
         type: r.type,
         purity: r.purity,
         grossWt: r.grossWt,
-        netWt: r.netWt,
+        stoneWt: r.stoneWt || undefined,
+        netWt: rowNet(r),
+        pureGoldWt: rowPure(r),
         rate: r.rate,
-        makingAmount: r.makingAmount,
+        makingAmount: rowMaking(r),
+        stoneCost: r.stoneCost || undefined,
+        otherCharges: r.otherCharges || undefined,
+        discount: r.discount || undefined,
+        costPerGram: rowNet(r) > 0 ? round2(rowAmount(r) / rowNet(r)) : 0,
+        huid: r.huid.trim() || undefined,
         amount: rowAmount(r),
       })),
     }
     try {
       const saved = await purchaseService.create(draft)
-
-      // Build live inventory from the flagged lines.
       const stockRows = items.filter((r) => r.addToStock)
       for (const r of stockRows) {
         await itemsService.add({
@@ -145,8 +220,9 @@ export function PurchaseFormDialog({
           category: r.category,
           purity: r.purity,
           grossWt: r.grossWt,
-          stoneWt: Math.max(0, Number((r.grossWt - r.netWt).toFixed(3))),
-          makingChargePerGm: r.netWt > 0 ? Number((r.makingAmount / r.netWt).toFixed(2)) : 0,
+          stoneWt: r.stoneWt,
+          makingChargePerGm: r.makingPerGm,
+          huid: r.huid.trim() || undefined,
           quantity: 1,
           tagPrefix: categoryByLabel(r.category)?.prefix ?? "ITM",
         })
@@ -162,18 +238,19 @@ export function PurchaseFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] grid-rows-[auto_minmax(0,1fr)_auto]">
+      <DialogContent className="max-w-6xl max-h-[90vh] grid-rows-[auto_minmax(0,1fr)_auto]">
         <DialogHeader>
           <DialogTitle>New Purchase</DialogTitle>
           <DialogDescription>
-            Record stock bought from a supplier. Ticked lines are added to live
-            inventory as tagged, sellable items.
+            Net weight, pure gold, cost/gram and totals are calculated for you. Ticked lines
+            are added to live inventory.
           </DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 space-y-3 overflow-y-auto pr-1">
-          <div className="grid grid-cols-4 gap-3">
-            <div className="col-span-2 space-y-1">
+          {/* Header */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Supplier</Label>
               <div className="flex gap-1">
                 <Select value={supplierId} onValueChange={setSupplierId}>
@@ -188,15 +265,39 @@ export function PurchaseFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => setSupOpen(true)}
-                  title="New supplier"
-                >
+                <Button variant="outline" size="icon" onClick={() => setSupOpen(true)} title="New supplier">
                   <UserPlus className="size-4" />
                 </Button>
               </div>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Purchase Type</Label>
+              <Select value={purchaseType} onValueChange={onType}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PURCHASE_TYPES.map((pt) => (
+                    <SelectItem key={pt.value} value={pt.value}>
+                      {pt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Payment Mode</Label>
+              <Select value={paymentMode} onValueChange={(v) => setPaymentMode(v as PaymentMode)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="upi">UPI / Bank</SelectItem>
+                  <SelectItem value="cheque">Cheque</SelectItem>
+                  <SelectItem value="credit">Credit</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Bill No</Label>
@@ -204,10 +305,16 @@ export function PurchaseFormDialog({
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Date</Label>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Gold Rate ₹/g</Label>
               <Input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
+                type="number"
+                min={0}
+                className="tabular text-right"
+                value={goldRate || ""}
+                onChange={(e) => onGoldRate(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))}
               />
             </div>
           </div>
@@ -216,26 +323,37 @@ export function PurchaseFormDialog({
           <div>
             <div className="mb-1 flex items-center justify-between">
               <Label className="text-xs text-muted-foreground">Items</Label>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setRows((rs) => [...rs, newRow()])}
-              >
-                <Plus className="size-4" /> Row
-              </Button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setAdvOpen((v) => !v)}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {advOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                  Advanced
+                </button>
+                <Button variant="ghost" size="sm" onClick={() => setRows((rs) => [...rs, newRow(metalForNew, goldRate)])}>
+                  <Plus className="size-4" /> Row
+                </Button>
+              </div>
             </div>
             <div className="overflow-x-auto rounded-md border">
-              <table className="w-full min-w-[760px] border-collapse text-sm">
+              <table className={cn("w-full border-collapse text-sm", advOpen ? "min-w-[1160px]" : "min-w-[820px]")}>
                 <thead className="bg-muted/60 text-xs text-muted-foreground">
                   <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:text-left [&>th]:font-medium">
                     <th>Description</th>
-                    <th className="w-32">Category</th>
-                    <th className="w-16">Purity</th>
-                    <th className="w-20 text-right">Gross</th>
-                    <th className="w-20 text-right">Net</th>
-                    <th className="w-24 text-right">Rate/g</th>
-                    <th className="w-24 text-right">Making ₹</th>
-                    <th className="w-28 text-right">Amount</th>
+                    <th className="w-28">Category</th>
+                    <th className="w-14">Purity</th>
+                    <th className="w-16 text-right">Gross</th>
+                    <th className="w-16 text-right">Stone</th>
+                    <th className="w-16 text-right">Net</th>
+                    <th className="w-20 text-right">Rate/g</th>
+                    <th className="w-20 text-right">Making/g</th>
+                    {advOpen && <th className="w-20 text-right">Stone ₹</th>}
+                    {advOpen && <th className="w-20 text-right">Other ₹</th>}
+                    {advOpen && <th className="w-20 text-right">Disc ₹</th>}
+                    {advOpen && <th className="w-24">HUID</th>}
+                    <th className="w-24 text-right">Amount</th>
                     <th className="w-12 text-center" title="Add to stock">Stock</th>
                     <th className="w-7" />
                   </tr>
@@ -244,21 +362,12 @@ export function PurchaseFormDialog({
                   {rows.map((r) => (
                     <tr key={r.id} className="border-t [&>td]:px-1 [&>td]:py-0.5">
                       <td>
-                        <TextCell
-                          value={r.description}
-                          onChange={(v) => update(r.id, { description: v })}
-                          placeholder="e.g. Gold ring"
-                        />
+                        <TextCell value={r.description} onChange={(v) => update(r.id, { description: v })} placeholder="e.g. Gold ring" />
                       </td>
                       <td>
                         <Select
                           value={r.category}
-                          onValueChange={(v) =>
-                            update(r.id, {
-                              category: v,
-                              type: categoryByLabel(v)?.defaultType ?? r.type,
-                            })
-                          }
+                          onValueChange={(v) => update(r.id, { category: v, type: categoryByLabel(v)?.defaultType ?? r.type })}
                         >
                           <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none">
                             <SelectValue />
@@ -273,30 +382,42 @@ export function PurchaseFormDialog({
                         </Select>
                       </td>
                       <td>
-                        <TextCell
-                          value={r.purity}
-                          onChange={(v) => update(r.id, { purity: v })}
-                        />
+                        <TextCell value={r.purity} onChange={(v) => update(r.id, { purity: v })} />
                       </td>
                       <td>
                         <NumCell value={r.grossWt} onChange={(v) => update(r.id, { grossWt: v })} />
                       </td>
                       <td>
-                        <NumCell value={r.netWt} onChange={(v) => update(r.id, { netWt: v })} />
+                        <NumCell value={r.stoneWt} onChange={(v) => update(r.id, { stoneWt: v })} />
                       </td>
+                      <td className="px-2 text-right tabular text-muted-foreground">{wt(rowNet(r))}</td>
                       <td>
                         <NumCell value={r.rate} step={1} onChange={(v) => update(r.id, { rate: v })} />
                       </td>
                       <td>
-                        <NumCell
-                          value={r.makingAmount}
-                          step={1}
-                          onChange={(v) => update(r.id, { makingAmount: v })}
-                        />
+                        <NumCell value={r.makingPerGm} step={1} onChange={(v) => update(r.id, { makingPerGm: v })} />
                       </td>
-                      <td className="px-2 text-right font-medium tabular">
-                        {formatAmount(rowAmount(r))}
-                      </td>
+                      {advOpen && (
+                        <td>
+                          <NumCell value={r.stoneCost} step={1} onChange={(v) => update(r.id, { stoneCost: v })} />
+                        </td>
+                      )}
+                      {advOpen && (
+                        <td>
+                          <NumCell value={r.otherCharges} step={1} onChange={(v) => update(r.id, { otherCharges: v })} />
+                        </td>
+                      )}
+                      {advOpen && (
+                        <td>
+                          <NumCell value={r.discount} step={1} onChange={(v) => update(r.id, { discount: v })} />
+                        </td>
+                      )}
+                      {advOpen && (
+                        <td>
+                          <TextCell value={r.huid} onChange={(v) => update(r.id, { huid: v })} placeholder="HUID" />
+                        </td>
+                      )}
+                      <td className="px-2 text-right font-medium tabular">{formatAmount(rowAmount(r))}</td>
                       <td className="text-center">
                         <input
                           type="checkbox"
@@ -308,11 +429,7 @@ export function PurchaseFormDialog({
                       </td>
                       <td>
                         <button
-                          onClick={() =>
-                            setRows((rs) =>
-                              rs.length > 1 ? rs.filter((x) => x.id !== r.id) : rs,
-                            )
-                          }
+                          onClick={() => setRows((rs) => (rs.length > 1 ? rs.filter((x) => x.id !== r.id) : rs))}
                           className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                           aria-label="Remove row"
                         >
@@ -322,26 +439,22 @@ export function PurchaseFormDialog({
                     </tr>
                   ))}
                 </tbody>
-                <tfoot>
-                  <tr className="border-t bg-muted/40 font-medium [&>td]:px-2 [&>td]:py-1">
-                    <td colSpan={3} className="text-muted-foreground">Totals</td>
-                    <td className="text-right tabular">
-                      {wt(rows.reduce((s, r) => s + r.grossWt, 0))}
-                    </td>
-                    <td className="text-right tabular">
-                      {wt(rows.reduce((s, r) => s + r.netWt, 0))}
-                    </td>
-                    <td colSpan={2} />
-                    <td className="text-right tabular">{formatAmount(gross)}</td>
-                    <td colSpan={2} />
-                  </tr>
-                </tfoot>
               </table>
+            </div>
+            {/* Totals strip */}
+            <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              <span>Gross <b className="text-foreground">{wt(t.totalGrossWt)} g</b></span>
+              <span>Net <b className="text-foreground">{wt(t.totalNet)} g</b></span>
+              <span>Pure gold <b className="text-foreground">{wt(t.totalPure)} g</b></span>
+              <span>Avg cost/g <b className="text-foreground">₹{formatAmount(t.avgCostPerGram)}</b></span>
+              {markup > 0 && (
+                <span>Est. profit <b className="text-emerald-600">₹{formatAmount(t.estProfit)}</b> · margin {t.margin}%</span>
+              )}
             </div>
           </div>
 
           {/* Tax + payment */}
-          <div className="grid grid-cols-4 items-end gap-3">
+          <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-5">
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">GST</Label>
               <Select value={String(gstRate)} onValueChange={(v) => setGstRate(Number(v))}>
@@ -357,38 +470,40 @@ export function PurchaseFormDialog({
                 </SelectContent>
               </Select>
             </div>
+            {advOpen && (
+              <div className="space-y-1">
+                <Label className="text-xs text-muted-foreground">Est. markup %</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  className="tabular text-right"
+                  value={markup || ""}
+                  onChange={(e) => setMarkup(e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0))}
+                />
+              </div>
+            )}
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Amount Paid (₹)</Label>
               <Input
                 type="number"
                 className="tabular text-right"
                 value={amountPaid || ""}
-                onChange={(e) =>
-                  setAmountPaid(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)
-                }
+                onChange={(e) => setAmountPaid(e.target.value === "" ? 0 : e.target.valueAsNumber || 0)}
               />
             </div>
             <div className="text-right text-sm">
-              <div className="text-muted-foreground">Net</div>
-              <div className="font-semibold tabular">{formatAmount(net)}</div>
+              <div className="text-muted-foreground">Net Payable</div>
+              <div className="font-semibold tabular">{formatAmount(t.net)}</div>
             </div>
             <div className="text-right text-sm">
               <div className="text-muted-foreground">Balance</div>
               <div
                 className={cn(
                   "font-semibold tabular",
-                  balance > 0
-                    ? "text-destructive"
-                    : balance < 0
-                      ? "text-emerald-600"
-                      : "text-muted-foreground",
+                  balance > 0 ? "text-destructive" : balance < 0 ? "text-emerald-600" : "text-muted-foreground",
                 )}
               >
-                {balance > 0
-                  ? formatAmount(balance)
-                  : balance < 0
-                    ? `${formatAmount(-balance)} Adv`
-                    : "Settled"}
+                {balance > 0 ? formatAmount(balance) : balance < 0 ? `${formatAmount(-balance)} Adv` : "Settled"}
               </div>
             </div>
           </div>
@@ -402,11 +517,7 @@ export function PurchaseFormDialog({
         </DialogFooter>
       </DialogContent>
 
-      <SupplierFormDialog
-        open={supOpen}
-        onOpenChange={setSupOpen}
-        onSaved={(s) => setSupplierId(String(s.id))}
-      />
+      <SupplierFormDialog open={supOpen} onOpenChange={setSupOpen} onSaved={(s) => setSupplierId(String(s.id))} />
     </Dialog>
   )
 }

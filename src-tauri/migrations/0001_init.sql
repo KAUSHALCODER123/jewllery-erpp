@@ -207,6 +207,9 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
   netAmount        REAL NOT NULL DEFAULT 0,
   amountPaid       REAL NOT NULL DEFAULT 0,
   balance          REAL NOT NULL DEFAULT 0,
+  purchaseType     TEXT,
+  paymentMode      TEXT,
+  goldRate         REAL,
   notes            TEXT,
   createdAt        TEXT
 );
@@ -220,9 +223,17 @@ CREATE TABLE IF NOT EXISTS purchase_items (
   type         TEXT NOT NULL,
   purity       TEXT NOT NULL,
   grossWt      REAL NOT NULL DEFAULT 0,
+  stoneWt      REAL,
   netWt        REAL NOT NULL DEFAULT 0,
+  pureGoldWt   REAL,
   rate         REAL NOT NULL DEFAULT 0,
   makingAmount REAL NOT NULL DEFAULT 0,
+  stoneCost    REAL,
+  otherCharges REAL,
+  discount     REAL,
+  costPerGram  REAL,
+  huid         TEXT,
+  hallmark     TEXT,
   amount       REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_pitem_purchase ON purchase_items(purchaseId);
