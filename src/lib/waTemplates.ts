@@ -83,12 +83,26 @@ export function normalizePhone(mobile: string | undefined | null): string {
   return digits.length === 10 ? `91${digits}` : digits
 }
 
-/** Open WhatsApp (web/app) with a pre-filled message to the given number. */
+/** True when running inside the Tauri desktop shell (WebView2), not a browser. */
+const inTauri = (): boolean =>
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+
+/**
+ * Open WhatsApp (web/app) with a pre-filled message to the given number.
+ *
+ * In the browser, `window.open` opens wa.me in a new tab. Inside the desktop
+ * app, WebView2 does not reliably honour `window.open` to an external site, so
+ * we route through tauri-plugin-opener (opens the OS default handler — WhatsApp
+ * Desktop or the browser). Falls back to `window.open` if the plugin is absent.
+ */
 export function openWhatsApp(mobile: string | undefined | null, text: string): void {
   const phone = normalizePhone(mobile)
-  window.open(
-    `https://wa.me/${phone}?text=${encodeURIComponent(text)}`,
-    "_blank",
-    "noopener",
-  )
+  const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`
+  if (inTauri()) {
+    void import("@tauri-apps/plugin-opener")
+      .then((m) => m.openUrl(url))
+      .catch(() => window.open(url, "_blank", "noopener"))
+    return
+  }
+  window.open(url, "_blank", "noopener")
 }
