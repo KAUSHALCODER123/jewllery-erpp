@@ -16,6 +16,13 @@ import {
   User,
   Receipt as ReceiptIcon,
   RotateCcw,
+  BarChart3,
+  TrendingUp,
+  Percent,
+  IndianRupee,
+  CalendarDays,
+  Boxes,
+  Eye,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { MetalType, Refiner, Refining } from "@/db/types"
@@ -59,8 +66,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { RefinerFormDialog } from "./RefinerFormDialog"
+import { RefiningDetailDialog } from "./RefiningDetailDialog"
 
 type ChargeType = "none" | "per_gram" | "flat" | "percentage"
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 const round3 = (n: number) => Number((Number.isFinite(n) ? n : 0).toFixed(3))
 const round2 = (n: number) => Number((Number.isFinite(n) ? n : 0).toFixed(2))
@@ -121,6 +131,7 @@ export function RefiningPage() {
   const [histScrap, setHistScrap] = useState("all")
   const [reverseTarget, setReverseTarget] = useState<Refining | null>(null)
   const [reversing, setReversing] = useState(false)
+  const [detailTarget, setDetailTarget] = useState<Refining | null>(null)
 
   const isGold = type === "gold"
   const usingKarat = isGold && karat !== "Custom"
@@ -260,6 +271,54 @@ export function RefiningPage() {
     }
   }
 
+  // ---- Analytics (computed from job history) ----
+  const analytics = useMemo(() => {
+    const all = history ?? []
+    const jobs = all.filter((r) => r.status !== "reversed")
+    const today = todayStr()
+    const monthKey = today.slice(0, 7)
+    const sum = (arr: Refining[], f: (r: Refining) => number) => arr.reduce((s, r) => s + (f(r) || 0), 0)
+    const recoveryOf = (r: Refining) =>
+      r.recoveryPct ?? (r.inputWt > 0 ? (r.outputWt / r.inputWt) * 100 : 0)
+
+    const todays = jobs.filter((r) => r.date === today)
+    const monthJobs = jobs.filter((r) => r.date.slice(0, 7) === monthKey)
+
+    // Last 6 months of recovered gold.
+    const [y, m] = today.split("-").map(Number)
+    const monthly: { label: string; recovered: number }[] = []
+    for (let i = 5; i >= 0; i--) {
+      let mm = m - i
+      let yy = y
+      while (mm <= 0) {
+        mm += 12
+        yy -= 1
+      }
+      const key = `${yy}-${String(mm).padStart(2, "0")}`
+      monthly.push({
+        label: MONTHS[mm - 1],
+        recovered: sum(jobs.filter((r) => r.date.slice(0, 7) === key), (r) => r.outputWt),
+      })
+    }
+
+    // Recovery trend — most recent ~12 jobs, oldest-first.
+    const trend = jobs.slice(0, 12).reverse().map((r) => Math.max(0, Math.min(100, recoveryOf(r))))
+
+    return {
+      todayCount: todays.length,
+      todayInput: sum(todays, (r) => r.inputWt),
+      monthRefined: sum(monthJobs, (r) => r.outputWt),
+      totalBullion: jobs.filter((r) => r.bullionNo).length,
+      avgRecovery: jobs.length ? sum(jobs, recoveryOf) / jobs.length : 0,
+      totalLoss: sum(jobs, (r) => r.lossWt ?? 0),
+      totalCharges: sum(jobs, (r) => r.totalCharge ?? 0),
+      monthly,
+      trend,
+      recent: all.slice(0, 6),
+      jobCount: jobs.length,
+    }
+  }, [history])
+
   const deleteRefiner = async (r: Refiner) => {
     if (!r.id) return
     if (!confirm(`Delete refiner ${r.name}?`)) return
@@ -282,6 +341,9 @@ export function RefiningPage() {
             </TabsTrigger>
             <TabsTrigger value="refiners">
               <Building2 className="size-4" /> Refiners ({refiners.length})
+            </TabsTrigger>
+            <TabsTrigger value="analytics">
+              <BarChart3 className="size-4" /> Analytics
             </TabsTrigger>
           </TabsList>
         </div>
@@ -621,7 +683,7 @@ export function RefiningPage() {
                     <TableHead className="w-16 text-right">Rec.%</TableHead>
                     <TableHead className="w-24 text-right">Charge</TableHead>
                     <TableHead className="w-24">Status</TableHead>
-                    <TableHead className="w-12" />
+                    <TableHead className="w-20" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -662,18 +724,30 @@ export function RefiningPage() {
                           </span>
                         </TableCell>
                         <TableCell>
-                          {!reversed && (
+                          <div className="flex justify-end gap-0.5">
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="size-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => setReverseTarget(r)}
-                              title="Reverse this job"
-                              aria-label="Reverse refining job"
+                              className="size-7 text-muted-foreground"
+                              onClick={() => setDetailTarget(r)}
+                              title="View details"
+                              aria-label="View refining details"
                             >
-                              <RotateCcw className="size-3.5" />
+                              <Eye className="size-3.5" />
                             </Button>
-                          )}
+                            {!reversed && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => setReverseTarget(r)}
+                                title="Reverse this job"
+                                aria-label="Reverse refining job"
+                              >
+                                <RotateCcw className="size-3.5" />
+                              </Button>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     )
@@ -774,6 +848,67 @@ export function RefiningPage() {
             </Table>
           </div>
         </TabsContent>
+
+        {/* ============ ANALYTICS TAB ============ */}
+        <TabsContent value="analytics" className="min-h-0 space-y-4 overflow-auto p-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Kpi icon={<Flame className="size-4 text-orange-500" />} label="Today's Refining" value={`${analytics.todayCount}`} sub={`${wt(analytics.todayInput)} g input`} />
+            <Kpi icon={<Coins className="size-4 text-emerald-600" />} label="This Month Refined" value={`${wt(analytics.monthRefined)} g`} sub="recovered gold" />
+            <Kpi icon={<Boxes className="size-4 text-primary" />} label="Bullion Produced" value={`${analytics.totalBullion}`} sub="bars, all time" />
+            <Kpi icon={<Percent className="size-4 text-primary" />} label="Avg Recovery" value={`${analytics.avgRecovery.toFixed(2)}%`} sub={`${analytics.jobCount} jobs`} />
+            <Kpi icon={<TrendingDown className="size-4 text-orange-500" />} label="Total Refining Loss" value={`${wt(analytics.totalLoss)} g`} sub="all time" tone="loss" />
+            <Kpi icon={<IndianRupee className="size-4 text-muted-foreground" />} label="Total Charges" value={`₹${formatAmount(analytics.totalCharges)}`} sub="all time" />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="rounded-xl border bg-card p-4 shadow-sm">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                <CalendarDays className="size-4 text-muted-foreground" /> Recovered Gold — last 6 months
+              </h3>
+              {analytics.jobCount === 0 ? (
+                <EmptyChart />
+              ) : (
+                <MonthlyBars data={analytics.monthly} />
+              )}
+            </section>
+
+            <section className="rounded-xl border bg-card p-4 shadow-sm">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+                <TrendingUp className="size-4 text-muted-foreground" /> Recovery % trend
+              </h3>
+              {analytics.trend.length === 0 ? (
+                <EmptyChart />
+              ) : (
+                <TrendBars data={analytics.trend} />
+              )}
+            </section>
+          </div>
+
+          <section className="rounded-xl border bg-card shadow-sm">
+            <div className="border-b px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Recent Refining Jobs
+            </div>
+            <div className="divide-y">
+              {analytics.recent.length === 0 && (
+                <div className="py-10 text-center text-sm text-muted-foreground">No jobs yet.</div>
+              )}
+              {analytics.recent.map((r) => {
+                const rec = r.recoveryPct ?? (r.inputWt > 0 ? (r.outputWt / r.inputWt) * 100 : 0)
+                return (
+                  <div key={r.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                    <span className="font-medium">{r.refiningNo}</span>
+                    <span className="text-muted-foreground">{formatDate(r.date)}</span>
+                    <span className="ml-auto tabular text-muted-foreground">{wt(r.inputWt)} → {wt(r.outputWt)} g</span>
+                    <span className="w-16 text-right tabular">{rec.toFixed(1)}%</span>
+                    <Button variant="ghost" size="icon" className="size-7" onClick={() => setDetailTarget(r)} aria-label="View details">
+                      <Eye className="size-3.5" />
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        </TabsContent>
       </Tabs>
 
       {/* ---- Confirmation dialog ---- */}
@@ -839,7 +974,81 @@ export function RefiningPage() {
         editRefiner={editRefiner}
         onSaved={(r) => setRefinerId(String(r.id))}
       />
+
+      <RefiningDetailDialog refining={detailTarget} onOpenChange={(o) => !o && setDetailTarget(null)} />
     </>
+  )
+}
+
+function Kpi({
+  icon,
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  sub: string
+  tone?: "loss"
+}) {
+  return (
+    <div className="rounded-xl border bg-card p-4 shadow-sm">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      <div className={cn("mt-1.5 text-2xl font-bold tabular", tone === "loss" && "text-orange-600 dark:text-orange-400")}>
+        {value}
+      </div>
+      <div className="text-xs text-muted-foreground">{sub}</div>
+    </div>
+  )
+}
+
+function MonthlyBars({ data }: { data: { label: string; recovered: number }[] }) {
+  const max = Math.max(...data.map((d) => d.recovered), 1)
+  return (
+    <div className="flex h-40 items-end gap-2">
+      {data.map((d, i) => (
+        <div key={i} className="flex flex-1 flex-col items-center gap-1">
+          <span className="text-[10px] tabular text-muted-foreground">{d.recovered > 0 ? wt(d.recovered) : ""}</span>
+          <div
+            className="w-full rounded-t bg-primary/70 transition-all"
+            style={{ height: `${Math.max(2, (d.recovered / max) * 100)}%` }}
+            title={`${d.label}: ${wt(d.recovered)} g`}
+          />
+          <span className="text-[11px] text-muted-foreground">{d.label}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function TrendBars({ data }: { data: number[] }) {
+  return (
+    <div className="flex h-40 items-end gap-1">
+      {data.map((pct, i) => (
+        <div
+          key={i}
+          className={cn(
+            "flex-1 rounded-t transition-all",
+            pct >= 90 ? "bg-emerald-500/70" : "bg-amber-500/70",
+          )}
+          style={{ height: `${Math.max(3, pct)}%` }}
+          title={`${pct.toFixed(1)}%`}
+        />
+      ))}
+    </div>
+  )
+}
+
+function EmptyChart() {
+  return (
+    <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+      No data yet — record a refining job.
+    </div>
   )
 }
 
