@@ -10,6 +10,8 @@ import {
   Truck,
   Copy,
   XCircle,
+  Boxes,
+  Hammer,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Order, OrderStatus } from "@/db/types"
@@ -48,6 +50,7 @@ import { OrderFormDialog } from "./OrderFormDialog"
 import { OrderTimelineDialog } from "./OrderTimelineDialog"
 import { OrderDetailDialog } from "./OrderDetailDialog"
 import { ReceiveAdvanceDialog } from "./ReceiveAdvanceDialog"
+import { AssignWorkshopDialog } from "./AssignWorkshopDialog"
 
 /** Statuses selectable from the row dropdown — the workflow plus Cancelled. */
 const SELECTABLE: OrderStatus[] = [...ORDER_WORKFLOW, "cancelled"]
@@ -57,6 +60,7 @@ export function OrdersPage() {
   const [timelineOrder, setTimelineOrder] = useState<Order | null>(null)
   const [detailOrder, setDetailOrder] = useState<Order | null>(null)
   const [advanceOrder, setAdvanceOrder] = useState<Order | null>(null)
+  const [assignOrder, setAssignOrder] = useState<Order | null>(null)
   const navigate = useNavigate()
   const posStore = usePosStore()
   const user = useSession((s) => s.user)
@@ -101,6 +105,15 @@ export function OrdersPage() {
     if (!confirm(`Cancel order ${order.orderNo}?`)) return
     await ordersService.setStatus(order.id!, "cancelled", { by: user?.name })
     toast.success(`${order.orderNo} cancelled`)
+  }
+
+  const reserveGold = async (order: Order) => {
+    const net = order.items.reduce((s, i) => s + i.netWt, 0)
+    await ordersService.setStatus(order.id!, "gold_reserved", {
+      by: user?.name,
+      remarks: `${net.toFixed(3)} g reserved`,
+    })
+    toast.success(`Gold reserved for ${order.orderNo}`)
   }
 
   return (
@@ -210,6 +223,16 @@ export function OrdersPage() {
                             </DropdownMenuItem>
                           )}
                           {!closed && (
+                            <DropdownMenuItem onClick={() => void reserveGold(o)}>
+                              <Boxes className="size-4" /> Reserve Gold
+                            </DropdownMenuItem>
+                          )}
+                          {!closed && (
+                            <DropdownMenuItem onClick={() => setAssignOrder(o)}>
+                              <Hammer className="size-4" /> Assign to Workshop
+                            </DropdownMenuItem>
+                          )}
+                          {!closed && (
                             <DropdownMenuItem onClick={() => handleDeliver(o)}>
                               <Truck className="size-4" /> Deliver &amp; Bill
                             </DropdownMenuItem>
@@ -240,6 +263,7 @@ export function OrdersPage() {
       <OrderTimelineDialog order={timelineOrder} onOpenChange={(o) => !o && setTimelineOrder(null)} />
       <OrderDetailDialog order={detailOrder} onOpenChange={(o) => !o && setDetailOrder(null)} />
       <ReceiveAdvanceDialog order={advanceOrder} onOpenChange={(o) => !o && setAdvanceOrder(null)} />
+      <AssignWorkshopDialog order={assignOrder} onOpenChange={(o) => !o && setAssignOrder(null)} />
     </>
   )
 }

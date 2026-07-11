@@ -1,7 +1,7 @@
 import { useLiveData } from "@/db/useLiveData"
 import { Printer } from "lucide-react"
 import type { Order } from "@/db/types"
-import { customersService, ordersService } from "@/services/dbService"
+import { customersService, ordersService, karigarsService } from "@/services/dbService"
 import { ORDER_STATUS_META, orderTypeLabel } from "@/lib/constants"
 import { formatAmount, formatDate, wt } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -32,8 +32,12 @@ export function OrderDetailDialog({
     [order?.id],
     [],
   )
+  const allJobs = useLiveData(() => karigarsService.getJobs(), [], [])
+  const karigars = useLiveData(() => karigarsService.getAll(), [], [])
 
   if (!order) return null
+  const workshopJobs = allJobs.filter((j) => j.orderId === order.id)
+  const karigarName = (id: number) => karigars.find((k) => k.id === id)?.name ?? "—"
   const meta = ORDER_STATUS_META[order.status] ?? ORDER_STATUS_META.confirmed
   const balance = Number((order.estimatedAmount - order.advanceReceived).toFixed(2))
 
@@ -140,6 +144,36 @@ export function OrderDetailDialog({
               </span>
             </div>
           </section>
+
+          {/* Workshop / manufacturing */}
+          {workshopJobs.length > 0 && (
+            <section className="rounded-lg border p-3">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Manufacturing Progress
+              </h4>
+              <div className="space-y-1.5">
+                {workshopJobs.map((j) => (
+                  <div key={j.id} className="flex items-center gap-2">
+                    <span className="font-medium">{j.jobNo}</span>
+                    <span className="text-muted-foreground">{karigarName(j.karigarId)}</span>
+                    <span className="ml-auto tabular text-muted-foreground">
+                      issued {wt(j.metalIssuedWt)} g
+                    </span>
+                    <span
+                      className={cn(
+                        "rounded px-1.5 py-0.5 text-[11px] font-medium capitalize",
+                        j.status === "received" || j.status === "closed"
+                          ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                          : "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+                      )}
+                    >
+                      {j.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {order.notes && (
             <section className="rounded-lg border p-3">
