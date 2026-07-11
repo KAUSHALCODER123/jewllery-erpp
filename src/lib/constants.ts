@@ -31,7 +31,7 @@ export const categoryByLabel = (label: string): CategoryDef | undefined =>
 /** Purchase types — each defaults the metal for new item lines. */
 export const PURCHASE_TYPES: { value: string; label: string; metal: MetalType }[] = [
   { value: "jewellery", label: "Jewellery", metal: "gold" },
-  { value: "bullion", label: "Bullion", metal: "gold" },
+  { value: "bullion", label: "Bullion (Sarafa)", metal: "gold" },
   { value: "silver", label: "Silver", metal: "silver" },
   { value: "loose_stone", label: "Loose Stone", metal: "other" },
   { value: "loose_diamond", label: "Loose Diamond", metal: "other" },
