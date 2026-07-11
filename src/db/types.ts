@@ -338,30 +338,83 @@ export interface OrderItem {
   netWt: number
   makingPerGm: number
   notes?: string
+  /** Optional type-specific measurements / details (progressive disclosure). */
+  size?: string
+  length?: string
+  stoneDetails?: string
+  engraving?: string
 }
 
+/** Kind of order — drives which fields matter and how it's fulfilled. */
+export type OrderType =
+  | "custom"
+  | "ready_stock"
+  | "repair"
+  | "alteration"
+  | "bridal"
+  | "exchange"
+  | "consignment"
+
+/**
+ * The full booking → delivery workflow. Legacy "booked" is kept as an alias for
+ * "confirmed" so orders created before the Phase-1 redesign still render.
+ */
 export type OrderStatus =
-  | "booked"
+  | "draft"
+  | "confirmed"
+  | "advance_received"
+  | "gold_reserved"
+  | "assigned_workshop"
   | "in_production"
+  | "stone_setting"
+  | "polishing"
+  | "quality_check"
   | "ready"
+  | "invoiced"
   | "delivered"
   | "cancelled"
+  | "booked"
 
-/** A customer's custom-jewellery order, booked before production. */
+/** One entry in an order's status timeline (who moved it, when, why). */
+export interface OrderStatusEntry {
+  status: OrderStatus
+  at: string
+  by?: string
+  remarks?: string
+}
+
+/** A customer's jewellery order, booked before production/delivery. */
 export interface Order {
   id?: number
   orderNo: string
   customerId: number
   date: string
   deliveryDate?: string
+  orderType?: OrderType
+  salesperson?: string
+  priority?: "normal" | "urgent"
   items: OrderItem[]
-  /** Quoted estimate for the finished order. */
+  /** Quoted estimate for the finished order (incl. GST) — the headline total. */
   estimatedAmount: number
+  /** Pricing breakdown (auto-calculated; optional for legacy rows). */
+  goldRate?: number
+  goldValue?: number
+  makingCharges?: number
+  stoneCharges?: number
+  otherCharges?: number
+  discount?: number
+  gstRate?: number
+  gstAmount?: number
+  goldCostRate?: number
+  estimatedProfit?: number
   advanceReceived: number
   advanceMode: PaymentMode
   status: OrderStatus
+  /** Visual-timeline backing store — appended on every status change. */
+  statusHistory?: OrderStatusEntry[]
   notes?: string
   invoiceId?: number
+  createdBy?: string
   createdAt?: string
 }
 

@@ -861,8 +861,12 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
   const ordersService = {
     getAll: () => ordersRepo.getAll(["id", "DESC"]) as unknown as Promise<Order[]>,
     get: (id: number) => ordersRepo.get(id) as unknown as Promise<Order | undefined>,
-    setStatus: (id: number, status: Order["status"]) =>
-      ordersRepo.update(id, { status } as never),
+    async setStatus(id: number, status: Order["status"], opts: { by?: string; remarks?: string } = {}) {
+      const o = (await ordersRepo.get(id)) as unknown as Order | undefined
+      const entry = { status, at: nowIso(), by: opts.by, remarks: opts.remarks }
+      const statusHistory = [...(o?.statusHistory ?? []), entry]
+      await ordersRepo.update(id, { status, statusHistory } as never)
+    },
     update: (id: number, patch: Partial<Order>) => ordersRepo.update(id, patch as never),
     async getOpen(): Promise<Order[]> {
       const rows = await queryRows<Order>(
@@ -871,10 +875,18 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       )
       return rows
     },
-    async add(input: Omit<Order, "id" | "orderNo" | "status" | "createdAt">): Promise<Order> {
+    async add(
+      input: Omit<Order, "id" | "orderNo" | "status" | "createdAt">,
+      opts: { status?: Order["status"] } = {},
+    ): Promise<Order> {
       return withTransaction(exec, async () => {
         const { code: orderNo } = await nextSequenceRaw(exec, "order", { prefix: "ORD" })
-        const record: Omit<Order, "id"> = { ...input, orderNo, status: "booked", createdAt: nowIso() }
+        const now = nowIso()
+        const status = opts.status ?? "confirmed"
+        const statusHistory = input.statusHistory ?? [
+          { status, at: now, by: input.salesperson ?? input.createdBy },
+        ]
+        const record: Omit<Order, "id"> = { ...input, orderNo, status, statusHistory, createdAt: now }
         return (await ordersRepo.add(record as never)) as unknown as Order
       })
     },

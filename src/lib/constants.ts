@@ -1,4 +1,4 @@
-import type { MetalType } from "@/db/types"
+import type { MetalType, OrderStatus, OrderType } from "@/db/types"
 
 /** Jewellery categories and their sequential barcode tag prefixes. */
 export interface CategoryDef {
@@ -85,6 +85,58 @@ export const REFINING_CHARGE_TYPES: { value: string; label: string; unit: string
   { value: "flat", label: "Flat", unit: "₹" },
   { value: "percentage", label: "Percentage", unit: "%" },
 ]
+
+/** Order types for the booking module (custom first — the common case). */
+export const ORDER_TYPES: { value: OrderType; label: string; hint: string }[] = [
+  { value: "custom", label: "Custom Jewellery", hint: "Made to order from a design" },
+  { value: "ready_stock", label: "Ready Stock", hint: "Reserve an existing piece" },
+  { value: "repair", label: "Repair", hint: "Fix a customer's item" },
+  { value: "alteration", label: "Alteration", hint: "Resize / restyle" },
+  { value: "bridal", label: "Bridal Order", hint: "Wedding set" },
+  { value: "exchange", label: "Exchange", hint: "Against old gold" },
+  { value: "consignment", label: "Consignment", hint: "On approval" },
+]
+
+export const orderTypeLabel = (t?: OrderType): string =>
+  ORDER_TYPES.find((o) => o.value === t)?.label ?? "Custom Jewellery"
+
+/** The canonical booking → delivery workflow, in order (excludes cancelled). */
+export const ORDER_WORKFLOW: OrderStatus[] = [
+  "draft",
+  "confirmed",
+  "advance_received",
+  "gold_reserved",
+  "assigned_workshop",
+  "in_production",
+  "stone_setting",
+  "polishing",
+  "quality_check",
+  "ready",
+  "invoiced",
+  "delivered",
+]
+
+/** Per-status label + chip tone. "booked" is a legacy alias for "confirmed". */
+export const ORDER_STATUS_META: Record<OrderStatus, { label: string; tone: string }> = {
+  draft: { label: "Draft", tone: "bg-muted text-muted-foreground" },
+  confirmed: { label: "Confirmed", tone: "bg-blue-100 text-blue-800" },
+  advance_received: { label: "Advance Received", tone: "bg-cyan-100 text-cyan-800" },
+  gold_reserved: { label: "Gold Reserved", tone: "bg-teal-100 text-teal-800" },
+  assigned_workshop: { label: "Assigned to Workshop", tone: "bg-indigo-100 text-indigo-800" },
+  in_production: { label: "In Production", tone: "bg-amber-100 text-amber-800" },
+  stone_setting: { label: "Stone Setting", tone: "bg-orange-100 text-orange-800" },
+  polishing: { label: "Polishing", tone: "bg-yellow-100 text-yellow-800" },
+  quality_check: { label: "Quality Check", tone: "bg-purple-100 text-purple-800" },
+  ready: { label: "Ready", tone: "bg-violet-100 text-violet-800" },
+  invoiced: { label: "Invoice Generated", tone: "bg-sky-100 text-sky-800" },
+  delivered: { label: "Delivered", tone: "bg-emerald-100 text-emerald-800" },
+  cancelled: { label: "Cancelled", tone: "bg-red-100 text-red-800" },
+  booked: { label: "Confirmed", tone: "bg-blue-100 text-blue-800" },
+}
+
+/** Normalize a status to its workflow index (legacy "booked" → "confirmed"). */
+export const orderStatusIndex = (s: OrderStatus): number =>
+  ORDER_WORKFLOW.indexOf(s === "booked" ? "confirmed" : s)
 
 /** Loyalty programme rules (configurable defaults). */
 export const LOYALTY_EARN_PER_GRAM = 1 // points earned per gram of net weight sold

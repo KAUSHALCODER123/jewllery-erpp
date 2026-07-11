@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, ClipboardList } from "lucide-react"
+import { Plus, ClipboardList, Clock } from "lucide-react"
 import { toast } from "sonner"
-import type { OrderStatus } from "@/db/types"
+import type { Order, OrderStatus } from "@/db/types"
 import { ordersService, customersService } from "@/services/dbService"
+import { ORDER_STATUS_META, ORDER_WORKFLOW, orderTypeLabel } from "@/lib/constants"
 import { formatAmount, formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { useSession } from "@/stores/useSession"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,27 +28,17 @@ import {
 import { useNavigate } from "react-router-dom"
 import { usePosStore } from "@/features/pos/usePosStore"
 import { OrderFormDialog } from "./OrderFormDialog"
+import { OrderTimelineDialog } from "./OrderTimelineDialog"
 
-const STATUSES: OrderStatus[] = [
-  "booked",
-  "in_production",
-  "ready",
-  "delivered",
-  "cancelled",
-]
-
-const STATUS_TONE: Record<OrderStatus, string> = {
-  booked: "bg-blue-100 text-blue-800",
-  in_production: "bg-amber-100 text-amber-800",
-  ready: "bg-violet-100 text-violet-800",
-  delivered: "bg-emerald-100 text-emerald-800",
-  cancelled: "bg-muted text-muted-foreground",
-}
+/** Statuses selectable from the row dropdown — the workflow plus Cancelled. */
+const SELECTABLE: OrderStatus[] = [...ORDER_WORKFLOW, "cancelled"]
 
 export function OrdersPage() {
   const [formOpen, setFormOpen] = useState(false)
+  const [timelineOrder, setTimelineOrder] = useState<Order | null>(null)
   const navigate = useNavigate()
   const posStore = usePosStore()
+  const user = useSession((s) => s.user)
   const orders = useLiveData(() => ordersService.getAll(), [], undefined)
   const customers = useLiveData(() => customersService.getAll(), [], [])
   const custName = useMemo(() => {
@@ -59,7 +51,7 @@ export function OrdersPage() {
     (o) => o.status !== "delivered" && o.status !== "cancelled",
   ).length
 
-  const handleDeliver = (order: any) => {
+  const handleDeliver = (order: Order) => {
     posStore.reset()
     posStore.setCustomer(order.customerId)
     posStore.setOrderLink(order.id!, order.advanceReceived)
@@ -68,7 +60,7 @@ export function OrdersPage() {
         description: item.description || "Custom Order Item",
         netWt: item.netWt,
         makingPerGm: item.makingPerGm,
-        rate: 0,
+        rate: order.goldRate ?? 0,
       })
     }
     toast.info(`Loaded Order ${order.orderNo} into POS with ₹${order.advanceReceived} advance`)
@@ -91,7 +83,7 @@ export function OrdersPage() {
         {orders && orders.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
             <ClipboardList className="size-10 text-muted-foreground/50" />
-            <p className="text-sm text-muted-foreground">No custom orders yet.</p>
+            <p className="text-sm text-muted-foreground">No orders yet.</p>
             <Button size="sm" onClick={() => setFormOpen(true)}>
               <Plus className="size-4" /> New Order
             </Button>
@@ -102,82 +94,100 @@ export function OrdersPage() {
               <TableRow>
                 <TableHead className="w-24">Order No</TableHead>
                 <TableHead>Customer</TableHead>
-                <TableHead>Design</TableHead>
+                <TableHead className="w-28">Type</TableHead>
                 <TableHead className="w-24">Delivery</TableHead>
                 <TableHead className="w-28 text-right">Estimated</TableHead>
-                <TableHead className="w-24 text-right">Advance</TableHead>
                 <TableHead className="w-28 text-right">Balance</TableHead>
-                <TableHead className="w-40">Status</TableHead>
-                <TableHead className="w-28 text-right" />
+                <TableHead className="w-44">Status</TableHead>
+                <TableHead className="w-36 text-right" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(orders ?? []).map((o) => (
-                <TableRow key={o.id}>
-                  <TableCell className="font-medium">{o.orderNo}</TableCell>
-                  <TableCell>{custName.get(o.customerId) ?? "—"}</TableCell>
-                  <TableCell className="max-w-[220px] truncate text-muted-foreground">
-                    {o.items.map((i) => i.description).filter(Boolean).join(", ") || "—"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {o.deliveryDate ? formatDate(o.deliveryDate) : "—"}
-                  </TableCell>
-                  <TableCell className="text-right tabular">
-                    {formatAmount(o.estimatedAmount)}
-                  </TableCell>
-                  <TableCell className="text-right tabular">
-                    {formatAmount(o.advanceReceived)}
-                  </TableCell>
-                  <TableCell className="text-right font-medium tabular">
-                    {formatAmount(o.estimatedAmount - o.advanceReceived)}
-                  </TableCell>
-                  <TableCell>
-                    <Select
-                      value={o.status}
-                      onValueChange={async (v) => {
-                        await ordersService.setStatus(o.id!, v as OrderStatus)
-                        toast.success(`${o.orderNo} → ${v.replace("_", " ")}`)
-                      }}
-                    >
-                      <SelectTrigger size="sm" className="w-36">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {STATUSES.map((s) => (
-                          <SelectItem key={s} value={s}>
-                            <span
-                              className={cn(
-                                "rounded px-1.5 py-0.5 text-[11px] font-medium capitalize",
-                                STATUS_TONE[s],
-                              )}
-                            >
-                              {s.replace("_", " ")}
-                            </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {o.status !== "delivered" && o.status !== "cancelled" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs text-primary hover:text-primary/80 h-7 font-medium"
-                        onClick={() => handleDeliver(o)}
+              {(orders ?? []).map((o) => {
+                const meta = ORDER_STATUS_META[o.status] ?? ORDER_STATUS_META.confirmed
+                const closed = o.status === "delivered" || o.status === "cancelled"
+                return (
+                  <TableRow key={o.id}>
+                    <TableCell className="font-medium">{o.orderNo}</TableCell>
+                    <TableCell>
+                      <div>{custName.get(o.customerId) ?? "—"}</div>
+                      <div className="max-w-[220px] truncate text-[11px] text-muted-foreground">
+                        {o.items.map((i) => i.description).filter(Boolean).join(", ") || "—"}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {orderTypeLabel(o.orderType)}
+                      {o.priority === "urgent" && (
+                        <span className="ml-1 rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-800">urgent</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {o.deliveryDate ? formatDate(o.deliveryDate) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular">{formatAmount(o.estimatedAmount)}</TableCell>
+                    <TableCell className="text-right font-medium tabular">
+                      {formatAmount(o.estimatedAmount - o.advanceReceived)}
+                    </TableCell>
+                    <TableCell>
+                      <Select
+                        value={o.status === "booked" ? "confirmed" : o.status}
+                        onValueChange={async (v) => {
+                          await ordersService.setStatus(o.id!, v as OrderStatus, { by: user?.name })
+                          toast.success(`${o.orderNo} → ${ORDER_STATUS_META[v as OrderStatus].label}`)
+                        }}
                       >
-                        Deliver & Bill
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+                        <SelectTrigger size="sm" className="w-40">
+                          <SelectValue>
+                            <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium", meta.tone)}>
+                              {meta.label}
+                            </span>
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {SELECTABLE.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              <span className={cn("rounded px-1.5 py-0.5 text-[11px] font-medium", ORDER_STATUS_META[s].tone)}>
+                                {ORDER_STATUS_META[s].label}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 text-muted-foreground"
+                          onClick={() => setTimelineOrder(o)}
+                          title="View timeline"
+                          aria-label="View order timeline"
+                        >
+                          <Clock className="size-3.5" />
+                        </Button>
+                        {!closed && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs font-medium text-primary hover:text-primary/80"
+                            onClick={() => handleDeliver(o)}
+                          >
+                            Deliver &amp; Bill
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         )}
       </div>
 
       <OrderFormDialog open={formOpen} onOpenChange={setFormOpen} />
+      <OrderTimelineDialog order={timelineOrder} onOpenChange={(o) => !o && setTimelineOrder(null)} />
     </>
   )
 }

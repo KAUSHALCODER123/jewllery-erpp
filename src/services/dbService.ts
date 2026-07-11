@@ -986,15 +986,31 @@ const ordersServiceDexie = {
       .reverse()
       .toArray(),
 
-  async add(input: Omit<Order, "id" | "orderNo" | "status" | "createdAt">): Promise<Order> {
+  async add(
+    input: Omit<Order, "id" | "orderNo" | "status" | "createdAt">,
+    opts: { status?: OrderStatus } = {},
+  ): Promise<Order> {
     const { code: orderNo } = await nextSequence("order", { prefix: "ORD" })
-    const record: Order = { ...input, orderNo, status: "booked", createdAt: nowIso() }
+    const status: OrderStatus = opts.status ?? "confirmed"
+    const now = nowIso()
+    const statusHistory = input.statusHistory ?? [
+      { status, at: now, by: input.salesperson ?? input.createdBy },
+    ]
+    const record: Order = { ...input, orderNo, status, statusHistory, createdAt: now }
     const id = await db.orders.add(record)
     return { ...record, id }
   },
 
-  setStatus: (id: number, status: OrderStatus): Promise<void> =>
-    db.orders.update(id, { status }).then(() => undefined),
+  async setStatus(
+    id: number,
+    status: OrderStatus,
+    opts: { by?: string; remarks?: string } = {},
+  ): Promise<void> {
+    const o = await db.orders.get(id)
+    if (!o) return
+    const entry = { status, at: nowIso(), by: opts.by, remarks: opts.remarks }
+    await db.orders.update(id, { status, statusHistory: [...(o.statusHistory ?? []), entry] })
+  },
 
   update: (id: number, patch: Partial<Order>): Promise<void> =>
     db.orders.update(id, patch).then(() => undefined),
