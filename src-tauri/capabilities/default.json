@@ -10,7 +10,7 @@
     "sql:allow-select",
     "sql:allow-close",
     "dialog:allow-open",
-    "opener:allow-open-url",
+    "opener:default",
     {
       "identifier": "fs:allow-write-text-file",
       "allow": [{ "path": "**" }]
