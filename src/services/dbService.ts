@@ -38,6 +38,7 @@ import type {
   InventoryLedger,
   OrderPayment,
   PurchasePayment,
+  PurchaseReturn,
   Refining,
   Refiner,
   SalesInvoice,
@@ -703,6 +704,51 @@ const purchasePaymentsServiceDexie = {
       }
       return { ...pay, id }
     })
+  },
+}
+
+/* ------------------------------------------------------------------ */
+/* Purchase returns (reduce payable + ledger reversal)                */
+/* ------------------------------------------------------------------ */
+
+const purchaseReturnsServiceDexie = {
+  getAll: (): Promise<PurchaseReturn[]> => db.purchase_returns.orderBy("id").reverse().toArray(),
+
+  getBySupplier: (supplierId: number): Promise<PurchaseReturn[]> =>
+    db.purchase_returns.where("supplierId").equals(supplierId).toArray(),
+
+  async create(input: Omit<PurchaseReturn, "id" | "returnNo" | "createdAt">): Promise<PurchaseReturn> {
+    return db.transaction(
+      "rw",
+      [db.purchase_returns, db.purchase_invoices, db.inventory_ledger, db.counters],
+      async () => {
+        const { code: returnNo } = await nextSequence("purchase_return", { prefix: "RET" })
+        const record: PurchaseReturn = { ...input, returnNo, createdAt: nowIso() }
+        const id = await db.purchase_returns.add(record)
+        if (input.purchaseId) {
+          const inv = await db.purchase_invoices.get(input.purchaseId)
+          if (inv) {
+            const netAmount = round(Math.max(0, inv.netAmount - input.amount))
+            await db.purchase_invoices.update(input.purchaseId, {
+              netAmount,
+              balance: round(Math.max(0, netAmount - inv.amountPaid)),
+            })
+          }
+        }
+        await db.inventory_ledger.add({
+          date: input.date,
+          refType: "purchase_return",
+          refId: id,
+          refNo: returnNo,
+          movement: "out",
+          weight: input.weight ?? 0,
+          description: `Purchase return ${returnNo} — ${input.reason}`,
+          createdBy: input.createdBy,
+          createdAt: nowIso(),
+        })
+        return { ...record, id }
+      },
+    )
   },
 }
 
@@ -1747,6 +1793,7 @@ export const refinersService = pick(refinersServiceDexie, sqlite?.refinersServic
 export const suppliersService = pick(suppliersServiceDexie, sqlite?.suppliersService)
 export const purchaseService = pick(purchaseServiceDexie, sqlite?.purchaseService)
 export const purchasePaymentsService = pick(purchasePaymentsServiceDexie, sqlite?.purchasePaymentsService)
+export const purchaseReturnsService = pick(purchaseReturnsServiceDexie, sqlite?.purchaseReturnsService)
 export const schemesService = pick(schemesServiceDexie, sqlite?.schemesService)
 export const receiptsService = pick(receiptsServiceDexie, sqlite?.receiptsService)
 export const ledgerService = pick(ledgerServiceDexie, sqlite?.ledgerService)

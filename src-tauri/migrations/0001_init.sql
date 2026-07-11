@@ -218,6 +218,22 @@ CREATE TABLE IF NOT EXISTS purchase_payments (
   createdAt  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_purchase_payments_supplier ON purchase_payments(supplierId);
+
+-- ---------- Purchase returns ----------
+CREATE TABLE IF NOT EXISTS purchase_returns (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  returnNo   TEXT NOT NULL UNIQUE,
+  purchaseId INTEGER,
+  supplierId INTEGER NOT NULL,
+  date       TEXT NOT NULL,
+  amount     REAL NOT NULL DEFAULT 0,
+  weight     REAL,
+  reason     TEXT NOT NULL,
+  notes      TEXT,
+  createdBy  TEXT,
+  createdAt  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_purchase_returns_supplier ON purchase_returns(supplierId);
 CREATE INDEX IF NOT EXISTS idx_suppliers_name ON suppliers(name);
 
 CREATE TABLE IF NOT EXISTS purchase_invoices (

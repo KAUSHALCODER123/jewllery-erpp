@@ -43,6 +43,15 @@ export const PURCHASE_TYPES: { value: string; label: string; metal: MetalType }[
 export const purchaseTypeLabel = (v?: string): string =>
   PURCHASE_TYPES.find((t) => t.value === v)?.label ?? "Jewellery"
 
+export const PURCHASE_RETURN_REASONS = [
+  "Defective",
+  "Wrong Item",
+  "Excess Quantity",
+  "Quality Issue",
+  "Rate Dispute",
+  "Other",
+]
+
 export const METAL_TYPES: { label: string; value: MetalType }[] = [
   { label: "Gold", value: "gold" },
   { label: "Silver", value: "silver" },

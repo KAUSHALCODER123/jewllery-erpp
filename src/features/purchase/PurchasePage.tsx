@@ -1,8 +1,8 @@
 import { useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, Truck, Pencil, UserPlus, MoreHorizontal, BookOpen, IndianRupee } from "lucide-react"
-import type { Supplier } from "@/db/types"
-import { purchaseService, suppliersService, purchasePaymentsService } from "@/services/dbService"
+import { Plus, Truck, Pencil, UserPlus, MoreHorizontal, BookOpen, IndianRupee, RotateCcw } from "lucide-react"
+import type { PurchaseInvoice, Supplier } from "@/db/types"
+import { purchaseService, suppliersService, purchasePaymentsService, purchaseReturnsService } from "@/services/dbService"
 import { formatAmount, formatDate } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
@@ -26,6 +26,7 @@ import { PurchaseFormDialog } from "./PurchaseFormDialog"
 import { SupplierFormDialog } from "./SupplierFormDialog"
 import { VendorPaymentDialog } from "./VendorPaymentDialog"
 import { VendorLedgerDialog } from "./VendorLedgerDialog"
+import { ReturnDialog } from "./ReturnDialog"
 
 export function PurchasePage() {
   const [tab, setTab] = useState("purchases")
@@ -34,10 +35,12 @@ export function PurchasePage() {
   const [editSupplier, setEditSupplier] = useState<Supplier | null>(null)
   const [payVendor, setPayVendor] = useState<Supplier | null>(null)
   const [ledgerVendor, setLedgerVendor] = useState<Supplier | null>(null)
+  const [returnPurchase, setReturnPurchase] = useState<PurchaseInvoice | null>(null)
 
   const purchases = useLiveData(() => purchaseService.getInvoices(), [], [])
   const suppliers = useLiveData(() => suppliersService.getAll(), [], [])
   const payments = useLiveData(() => purchasePaymentsService.getAll(), [], [])
+  const returns = useLiveData(() => purchaseReturnsService.getAll(), [], [])
   const supById = useMemo(() => {
     const m = new Map<number, Supplier>()
     for (const s of suppliers) m.set(s.id!, s)
@@ -83,6 +86,7 @@ export function PurchasePage() {
           <TabsList>
             <TabsTrigger value="purchases">Purchases</TabsTrigger>
             <TabsTrigger value="suppliers">Suppliers</TabsTrigger>
+            <TabsTrigger value="returns">Returns ({returns.length})</TabsTrigger>
           </TabsList>
         </div>
 
@@ -141,16 +145,23 @@ export function PurchasePage() {
                       {p.balance > 0 ? formatAmount(p.balance) : "—"}
                     </TableCell>
                     <TableCell className="text-right">
-                      {p.balance > 0 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 text-xs font-medium text-primary hover:text-primary/80"
-                          onClick={() => setPayVendor(supById.get(p.supplierId) ?? null)}
-                        >
-                          Pay
-                        </Button>
-                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="size-7" aria-label="Purchase actions">
+                            <MoreHorizontal className="size-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {p.balance > 0 && (
+                            <DropdownMenuItem onClick={() => setPayVendor(supById.get(p.supplierId) ?? null)}>
+                              <IndianRupee className="size-4" /> Pay
+                            </DropdownMenuItem>
+                          )}
+                          <DropdownMenuItem onClick={() => setReturnPurchase(p)}>
+                            <RotateCcw className="size-4" /> Return
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -237,6 +248,45 @@ export function PurchasePage() {
             </Table>
           )}
         </TabsContent>
+        <TabsContent value="returns" className="min-h-0 flex-1 overflow-auto">
+          {returns.length === 0 ? (
+            <Empty
+              icon={<RotateCcw className="size-10 text-muted-foreground/50" />}
+              text="No purchase returns yet."
+              action={null}
+            />
+          ) : (
+            <Table>
+              <TableHeader className="sticky top-0 bg-card">
+                <TableRow>
+                  <TableHead className="w-24">Return No</TableHead>
+                  <TableHead>Vendor</TableHead>
+                  <TableHead className="w-24">Date</TableHead>
+                  <TableHead className="w-28 text-right">Amount</TableHead>
+                  <TableHead className="w-20 text-right">Weight</TableHead>
+                  <TableHead>Reason</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {returns.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">{r.returnNo}</TableCell>
+                    <TableCell>{supName(r.supplierId)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(r.date)}</TableCell>
+                    <TableCell className="text-right tabular">{formatAmount(r.amount)}</TableCell>
+                    <TableCell className="text-right tabular text-muted-foreground">
+                      {r.weight ? `${r.weight} g` : "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {r.reason}
+                      {r.notes ? ` · ${r.notes}` : ""}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </TabsContent>
       </Tabs>
 
       <PurchaseFormDialog open={purchaseOpen} onOpenChange={setPurchaseOpen} />
@@ -246,6 +296,7 @@ export function PurchasePage() {
         editSupplier={editSupplier}
       />
       <VendorPaymentDialog vendor={payVendor} onOpenChange={(o) => !o && setPayVendor(null)} />
+      <ReturnDialog purchase={returnPurchase} onOpenChange={(o) => !o && setReturnPurchase(null)} />
       <VendorLedgerDialog
         vendor={ledgerVendor}
         onOpenChange={(o) => !o && setLedgerVendor(null)}

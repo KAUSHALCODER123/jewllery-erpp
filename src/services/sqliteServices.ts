@@ -38,6 +38,7 @@ import type {
   Order,
   OrderPayment,
   PurchasePayment,
+  PurchaseReturn,
   Receipt,
   Refiner,
   Scheme,
@@ -148,6 +149,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
   const schemesRepo = makeTableRepo("schemes", typesFor("schemes"), exec)
   const suppliersRepo = makeTableRepo("suppliers", typesFor("suppliers"), exec)
   const purchasePaymentsRepo = makeTableRepo("purchase_payments", typesFor("purchase_payments"), exec)
+  const purchaseReturnsRepo = makeTableRepo("purchase_returns", typesFor("purchase_returns"), exec)
   const receiptsRepo = makeTableRepo("receipts", typesFor("receipts"), exec)
 
   /** DELETE every row of `table` matching one equality column (used by cascade rewrites). */
@@ -878,6 +880,38 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     },
   }
 
+  const purchaseReturnsService = {
+    getAll: () => purchaseReturnsRepo.getAll(["id", "DESC"]) as unknown as Promise<PurchaseReturn[]>,
+    getBySupplier: (supplierId: number) =>
+      purchaseReturnsRepo.where({ supplierId } as never) as unknown as Promise<PurchaseReturn[]>,
+    async create(input: Omit<PurchaseReturn, "id" | "returnNo" | "createdAt">): Promise<PurchaseReturn> {
+      return withTransaction(exec, async () => {
+        const { code: returnNo } = await nextSequenceRaw(exec, "purchase_return", { prefix: "RET" })
+        const record = { ...input, returnNo, createdAt: nowIso() }
+        const created = (await purchaseReturnsRepo.add(record as never)) as { id: number }
+        if (input.purchaseId) {
+          const inv = (await purchaseRepo.get(input.purchaseId)) as unknown as
+            | { netAmount: number; amountPaid: number }
+            | undefined
+          if (inv) {
+            const netAmount = round(Math.max(0, inv.netAmount - input.amount))
+            await purchaseRepo.update(input.purchaseId, {
+              netAmount,
+              balance: round(Math.max(0, netAmount - inv.amountPaid)),
+            } as never)
+          }
+        }
+        await inventoryLedgerRepo.add({
+          date: input.date, refType: "purchase_return", refId: created.id, refNo: returnNo,
+          movement: "out", weight: input.weight ?? 0,
+          description: `Purchase return ${returnNo} — ${input.reason}`,
+          createdBy: input.createdBy, createdAt: nowIso(),
+        } as never)
+        return { ...record, id: created.id } as unknown as PurchaseReturn
+      })
+    },
+  }
+
   const receiptsService = {
     getAll: () => receiptsRepo.getAll(["id", "DESC"]) as unknown as Promise<Receipt[]>,
     getByCustomer: (customerId: number) =>
@@ -1202,6 +1236,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     purchaseService,
     suppliersService,
     purchasePaymentsService,
+    purchaseReturnsService,
     receiptsService,
     ordersService,
     reportsService,

@@ -49,6 +49,7 @@ const businessSpecs = (): TableSpec[] => [
   { table: "orders", load: () => db.orders.toArray(), json: ["items", "statusHistory"] },
   { table: "order_payments", load: () => db.order_payments.toArray() },
   { table: "purchase_payments", load: () => db.purchase_payments.toArray() },
+  { table: "purchase_returns", load: () => db.purchase_returns.toArray() },
   { table: "refinings", load: () => db.refinings.toArray() },
   { table: "refiners", load: () => db.refiners.toArray() },
   { table: "bullion_stock", load: () => db.bullion_stock.toArray() },

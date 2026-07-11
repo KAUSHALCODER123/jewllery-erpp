@@ -261,6 +261,21 @@ export interface Supplier {
   updatedAt?: string
 }
 
+/** A return of purchased goods to a vendor (reduces payable + stock). */
+export interface PurchaseReturn {
+  id?: number
+  returnNo: string
+  purchaseId?: number
+  supplierId: number
+  date: string
+  amount: number
+  weight?: number
+  reason: string
+  notes?: string
+  createdBy?: string
+  createdAt?: string
+}
+
 /** A payment made to a vendor — against a specific purchase or on account. */
 export interface PurchasePayment {
   id?: number
