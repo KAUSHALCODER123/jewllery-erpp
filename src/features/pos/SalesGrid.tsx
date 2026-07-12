@@ -1,8 +1,10 @@
-import { useRef, useState, useEffect } from "react"
-import { Barcode, Plus, Trash2 } from "lucide-react"
+import { useRef, useState, useEffect, type KeyboardEvent as ReactKeyboardEvent } from "react"
+import { Barcode, Plus, Trash2, Search } from "lucide-react"
 import { toast } from "sonner"
 import { itemsService } from "@/services/dbService"
+import type { Item } from "@/db/types"
 import { wt, formatAmount } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { usePosStore } from "./usePosStore"
@@ -18,6 +20,51 @@ export function SalesGrid() {
 
   const [scan, setScan] = useState("")
   const scanRef = useRef<HTMLInputElement>(null)
+
+  // Search-and-pick: find in-stock items by name / tag / HUID (no exact barcode needed).
+  const [query, setQuery] = useState("")
+  const [matches, setMatches] = useState<Item[]>([])
+  const [active, setActive] = useState(0)
+
+  useEffect(() => {
+    const q = query.trim()
+    if (!q) {
+      setMatches([])
+      return
+    }
+    let cancelled = false
+    void itemsService.search(q).then((rows) => {
+      if (cancelled) return
+      setMatches(rows.filter((r) => (r.status ?? "in_stock") === "in_stock").slice(0, 8))
+      setActive(0)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [query])
+
+  const pick = (item: Item) => {
+    addFromItem(item)
+    setQuery("")
+    setMatches([])
+    scanRef.current?.focus()
+  }
+
+  const handleSearchKey = (e: ReactKeyboardEvent) => {
+    if (!matches.length) return
+    if (e.key === "ArrowDown") {
+      e.preventDefault()
+      setActive((a) => (a + 1) % matches.length)
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault()
+      setActive((a) => (a - 1 + matches.length) % matches.length)
+    } else if (e.key === "Enter") {
+      e.preventDefault()
+      pick(matches[active])
+    } else if (e.key === "Escape") {
+      setMatches([])
+    }
+  }
 
   useEffect(() => {
     scanRef.current?.focus()
@@ -73,6 +120,44 @@ export function SalesGrid() {
         <Button variant="outline" size="sm" onClick={() => void handleScan()}>
           Add
         </Button>
+        <div className="relative w-72">
+          <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleSearchKey}
+            placeholder="Search item by name / tag / HUID…"
+            aria-label="Search item"
+            className="pl-8"
+          />
+          {matches.length > 0 && (
+            <ul className="absolute left-0 top-full z-30 mt-1 max-h-72 w-80 overflow-auto rounded-md border bg-popover text-popover-foreground shadow-md">
+              {matches.map((it, idx) => (
+                <li key={it.id}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      pick(it)
+                    }}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent",
+                      idx === active && "bg-accent",
+                    )}
+                  >
+                    <span className="min-w-0 truncate">
+                      <span className="font-medium">{it.name}</span>{" "}
+                      <span className="text-xs text-muted-foreground">{it.tag}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {wt(it.netWt)}g · {it.purity}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <Button
           variant="ghost"
           size="sm"
