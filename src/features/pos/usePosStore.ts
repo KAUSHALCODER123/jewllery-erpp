@@ -1,5 +1,5 @@
 import { create } from "zustand"
-import type { Item, SalesInvoice, SalesItem, UrdItem } from "@/db/types"
+import type { Item, SalePaymentDetail, SalesInvoice, SalesItem, UrdItem } from "@/db/types"
 import type { SalesLine, UrdLine } from "./calc"
 import { useSession } from "@/stores/useSession"
 
@@ -16,6 +16,7 @@ interface PosState {
   gstRate: number
   cashPaid: number
   upiPaid: number
+  otherPayments: SalePaymentDetail[]
   notes: string
   billDiscount: number
   makingDiscount: number
@@ -31,6 +32,8 @@ interface PosState {
    *  re-saving an edit doesn't recompute a higher total or re-charge the customer). */
   editingLoyaltyDiscount: number
   editingPointsRedeemed: number
+  editReason?: string
+  editUser?: string
   orderId: number | null
   advanceApplied: number
 
@@ -40,6 +43,8 @@ interface PosState {
     invoice: SalesInvoice
     items: SalesItem[]
     urd: UrdItem[]
+    editReason?: string
+    editUser?: string
   }) => void
 
   addSalesLine: (partial?: Partial<SalesLine>) => string
@@ -55,6 +60,7 @@ interface PosState {
   setGstRate: (r: number) => void
   setCashPaid: (n: number) => void
   setUpiPaid: (n: number) => void
+  setOtherPayment: (mode: SalePaymentDetail["mode"], amount: number, reference?: string) => void
   setNotes: (s: string) => void
   setBillDiscount: (n: number) => void
   setMakingDiscount: (n: number) => void
@@ -92,6 +98,7 @@ export const usePosStore = create<PosState>((set) => ({
   gstRate: useSession.getState().company?.defaultGstRate ?? 3,
   cashPaid: 0,
   upiPaid: 0,
+  otherPayments: [],
   notes: "",
   billDiscount: 0,
   makingDiscount: 0,
@@ -109,7 +116,7 @@ export const usePosStore = create<PosState>((set) => ({
   setCustomer: (id) => set({ customerId: id }),
   setOrderLink: (orderId, advance) => set({ orderId, advanceApplied: advance }),
 
-  loadForEdit: ({ invoice, items, urd }) => {
+  loadForEdit: ({ invoice, items, urd, editReason, editUser }) => {
     const gst = invoice.cgst + invoice.sgst + (invoice.igst ?? 0)
     const taxable = invoice.taxableAmount || 0
     const gstRate = taxable > 0 ? Math.round((gst / taxable) * 1000) / 10 : 3
@@ -120,6 +127,8 @@ export const usePosStore = create<PosState>((set) => ({
       editingInvoiceNo: invoice.invoiceNo,
       editingLoyaltyDiscount: invoice.loyaltyDiscount ?? 0,
       editingPointsRedeemed: invoice.pointsRedeemed ?? 0,
+      editReason,
+      editUser,
       customerId: invoice.customerId,
       orderId: invoice.orderId ?? null,
       advanceApplied: invoice.advanceApplied ?? 0,
@@ -130,6 +139,7 @@ export const usePosStore = create<PosState>((set) => ({
       tcsPct,
       cashPaid: invoice.cashPaid,
       upiPaid: invoice.upiPaid,
+      otherPayments: invoice.paymentDetails ?? [],
       salesman: invoice.salesman ?? "",
       loyaltyRedeem: 0,
       notes: invoice.notes ?? "",
@@ -201,6 +211,7 @@ export const usePosStore = create<PosState>((set) => ({
   setGstRate: (r) => set({ gstRate: r }),
   setCashPaid: (n) => set({ cashPaid: n }),
   setUpiPaid: (n) => set({ upiPaid: n }),
+  setOtherPayment: (mode, amount, reference) => set((s) => ({ otherPayments: amount > 0 || reference ? [...s.otherPayments.filter((p) => p.mode !== mode), { mode, amount: Math.max(0, amount), reference }] : s.otherPayments.filter((p) => p.mode !== mode) })),
   setNotes: (s) => set({ notes: s }),
   setBillDiscount: (n) => set({ billDiscount: n }),
   setMakingDiscount: (n) => set({ makingDiscount: n }),
@@ -217,6 +228,7 @@ export const usePosStore = create<PosState>((set) => ({
       gstRate: useSession.getState().company?.defaultGstRate ?? 3,
       cashPaid: 0,
       upiPaid: 0,
+      otherPayments: [],
       notes: "",
       billDiscount: 0,
       makingDiscount: 0,
@@ -228,6 +240,8 @@ export const usePosStore = create<PosState>((set) => ({
       editingInvoiceNo: null,
       editingLoyaltyDiscount: 0,
       editingPointsRedeemed: 0,
+      editReason: undefined,
+      editUser: undefined,
       orderId: null,
       advanceApplied: 0,
     }),

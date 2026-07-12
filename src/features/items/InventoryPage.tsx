@@ -44,8 +44,10 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ItemFormDialog } from "./ItemFormDialog"
 import { BarcodeLabels } from "./BarcodeLabels"
+import { useSession } from "@/stores/useSession"
 
 export function InventoryPage() {
+  const user = useSession((s) => s.user)
   const [search, setSearch] = useState("")
   const [category, setCategory] = useState<string>("all")
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -85,8 +87,11 @@ export function InventoryPage() {
 
   const handleDelete = async (item: Item) => {
     if (!item.id) return
-    if (!confirm(`Delete ${item.name} (${item.tag})?`)) return
-    await itemsService.remove(item.id)
+    if (user?.role !== "owner") return toast.error("Permanent deletion is reserved for the Owner")
+    const reason = window.prompt(`Reason to permanently delete ${item.tag}:`)?.trim()
+    if (!reason) return
+    if (!confirm(`Permanently delete ${item.name} (${item.tag})?`)) return
+    await itemsService.remove(item.id, { user: user.name, role: user.role, reason })
     toast.success(`Deleted ${item.tag}`)
   }
 

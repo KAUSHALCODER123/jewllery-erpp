@@ -78,6 +78,7 @@ export interface BillOptions {
   /** Inter-state sale → IGST (full rate) instead of CGST+SGST split. */
   interState?: boolean
   advanceApplied?: number
+  otherPayments?: number
 }
 
 /**
@@ -123,7 +124,7 @@ export function computeTotals(
   const tcs = round((taxable * tcsPct) / 100)
 
   const netAmount = round(taxable + gstAmount + tcs)
-  const received = round((cashPaid || 0) + (upiPaid || 0))
+  const received = round((cashPaid || 0) + (upiPaid || 0) + Math.max(0, opts.otherPayments || 0))
   const balance = round(netAmount - received - advanceApplied)
 
   return {

@@ -37,6 +37,14 @@ import type {
   LoanPayment,
   Supplier,
   UrdItem,
+  SalesReturn,
+  SalesReturnItem,
+  AuditEntry,
+  DailyMetalRate,
+  CashVoucher,
+  DayClosing,
+  RepairJob,
+  RepairHistory,
 } from "./types"
 
 export class JewelDatabase extends Dexie {
@@ -67,6 +75,14 @@ export class JewelDatabase extends Dexie {
   order_payments!: Table<OrderPayment, number>
   purchase_payments!: Table<PurchasePayment, number>
   purchase_returns!: Table<PurchaseReturn, number>
+  sales_returns!: Table<SalesReturn, number>
+  sales_return_items!: Table<SalesReturnItem, number>
+  audit_log!: Table<AuditEntry, number>
+  daily_metal_rates!: Table<DailyMetalRate, number>
+  cash_vouchers!: Table<CashVoucher, number>
+  day_closings!: Table<DayClosing, number>
+  repairs!: Table<RepairJob, number>
+  repair_history!: Table<RepairHistory, number>
 
   constructor(name: string) {
     super(name)
@@ -142,6 +158,18 @@ export class JewelDatabase extends Dexie {
     this.version(11).stores({
       purchase_returns: "++id, &returnNo, supplierId, purchaseId, date",
     })
+
+    this.version(12).stores({
+      sales_returns: "++id, &returnNo, invoiceId, customerId, date",
+      sales_return_items: "++id, returnId, salesItemId, itemId",
+      audit_log: "++id, createdAt, user, action, entity, entityId",
+    })
+    this.version(13).stores({
+      daily_metal_rates: "++id, date, effectiveAt",
+      cash_vouchers: "++id, &voucherNo, date, kind, mode",
+      day_closings: "++id, &date, closedAt",
+    })
+    this.version(14).stores({ repairs:"++id, &repairNo, customerId, receivedDate, promisedDate, status", repair_history:"++id, repairId, at, status" })
   }
 }
 

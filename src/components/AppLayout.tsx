@@ -19,6 +19,9 @@ import {
   ClipboardList,
   ScanLine,
   Flame,
+  RotateCcw,
+  Calculator,
+  Wrench,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/stores/useSession"
@@ -39,6 +42,9 @@ const NAV: NavItem[] = [
   { to: "/audit", label: "Stock Audit", icon: ScanLine },
   { to: "/customers", label: "Customers", icon: Users },
   { to: "/receipt", label: "Receipt (Udhari)", icon: HandCoins },
+  { to: "/sales-returns", label: "Sales Returns", icon: RotateCcw },
+  { to: "/operations", label: "Counter Operations", icon: Calculator },
+  { to: "/repairs", label: "Repairs", icon: Wrench },
   { to: "/purchase", label: "Purchase", icon: Truck },
   { to: "/refining", label: "Refining (Ghalai)", icon: Flame },
   { to: "/schemes", label: "Gold Schemes", icon: PiggyBank },

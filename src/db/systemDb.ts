@@ -9,7 +9,7 @@
 import Dexie, { type Table } from "dexie"
 import type { ReceiptLang } from "@/lib/receiptI18n"
 
-export type UserRole = "owner" | "manager" | "cashier"
+export type UserRole = "owner" | "manager" | "staff"
 
 export interface User {
   id?: number
@@ -52,6 +52,8 @@ export interface Company {
   loyaltyRupeesPerPoint?: number
   /** Max points a customer may hold (0 / unset = no limit). */
   loyaltyMaxPoints?: number
+  discountDirectLimit?: number
+  discountReasonLimit?: number
   // WhatsApp notification templates
   templateInvoice?: string
   templateDues?: string
@@ -70,6 +72,9 @@ export class SystemDatabase extends Dexie {
     this.version(1).stores({
       users: "++id, &username, role",
       companies: "++id, name",
+    })
+    this.version(2).stores({ users: "++id, &username, role", companies: "++id, name" }).upgrade(async (tx) => {
+      await tx.table("users").toCollection().modify((u) => { if (u.role === "cashier") u.role = "staff" })
     })
   }
 }

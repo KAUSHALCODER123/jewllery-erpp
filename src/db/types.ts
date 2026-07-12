@@ -18,6 +18,11 @@
 export type MetalType = "gold" | "silver" | "platinum" | "other"
 
 export type PaymentMode = "cash" | "upi" | "card" | "cheque" | "credit"
+export interface SalePaymentDetail {
+  mode: "card" | "bank" | "cheque"
+  amount: number
+  reference?: string
+}
 
 /** A single piece of stock / jewellery item in the inventory. */
 export interface Item {
@@ -107,12 +112,18 @@ export interface SalesInvoice {
   netAmount: number
   cashPaid: number
   upiPaid: number
+  /** Additional structured payments; cash/UPI remain first-class for compatibility. */
+  paymentDetails?: SalePaymentDetail[]
   /** netAmount - (cashPaid + upiPaid). Positive => customer still owes. */
   balance: number
   notes?: string
   orderId?: number
   advanceApplied?: number
   createdAt?: string
+  cancelled?: boolean
+  cancelReason?: string
+  cancelledAt?: string
+  cancelledBy?: string
 }
 
 /** A single new-jewellery line on a sales invoice. */
@@ -131,6 +142,104 @@ export interface SalesItem {
   /** rate * netWt + makingAmount (line total before tax). */
   finalAmount: number
 }
+
+export type ReturnDisposition = "restock" | "repair" | "melt" | "scrap"
+
+/** Numbered GST credit note raised against an immutable sales invoice. */
+export interface SalesReturn {
+  id?: number
+  returnNo: string
+  invoiceId: number
+  customerId: number
+  date: string
+  reason: string
+  taxableAmount: number
+  cgst: number
+  sgst: number
+  igst: number
+  totalAmount: number
+  refundMode?: PaymentMode
+  refundAmount: number
+  customerCredit: number
+  notes?: string
+  createdBy?: string
+  createdAt?: string
+}
+
+export interface SalesReturnItem {
+  id?: number
+  returnId: number
+  salesItemId: number
+  itemId?: number
+  description: string
+  netWt: number
+  taxableAmount: number
+  disposition: ReturnDisposition
+}
+
+/** Append-only record of sensitive business mutations. */
+export interface AuditEntry {
+  id?: number
+  createdAt: string
+  user?: string
+  action: string
+  entity: string
+  entityId?: number
+  reason?: string
+  beforeJson?: string
+  afterJson?: string
+}
+
+export interface DailyMetalRate {
+  id?: number
+  date: string
+  effectiveAt: string
+  gold24k: number
+  gold22k: number
+  gold18k: number
+  silver: number
+  oldGoldBuy22k: number
+  notes?: string
+  createdBy?: string
+  createdAt?: string
+}
+
+export interface CashVoucher {
+  id?: number
+  voucherNo: string
+  date: string
+  kind: "payment" | "receipt"
+  category: string
+  mode: Exclude<PaymentMode, "credit">
+  amount: number
+  party?: string
+  reference?: string
+  notes?: string
+  createdBy?: string
+  createdAt?: string
+}
+
+export interface DayClosing {
+  id?: number
+  date: string
+  openingCash: number
+  expectedCash: number
+  physicalCash: number
+  difference: number
+  notes?: string
+  closedBy?: string
+  closedAt: string
+}
+
+export type RepairStatus = "received" | "in_progress" | "ready" | "delivered" | "cancelled"
+export interface RepairJob {
+  id?: number; repairNo:string; customerId:number; receivedDate:string; promisedDate?:string
+  description:string; condition?:string; grossWt?:number; purity?:string; image?:string
+  estimatedAmount:number; advanceAmount:number; finalAmount?:number; workNotes?:string
+  status:RepairStatus; deliveredDate?:string; createdBy?:string; updatedBy?:string
+  createdAt?:string; updatedAt?:string
+}
+export interface RepairHistory { id?:number; repairId:number; status:RepairStatus; at:string; by?:string; reason?:string }
 
 /** A single old-gold / scrap line received in part-exchange on an invoice. */
 export interface UrdItem {

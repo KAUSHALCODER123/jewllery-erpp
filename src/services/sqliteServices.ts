@@ -45,11 +45,22 @@ import type {
   SchemeAccount,
   SchemeScheduleRow,
   Supplier,
+  SalesReturn,
+  SalesReturnItem,
+  AuditEntry,
+  DailyMetalRate,
+  CashVoucher,
+  DayClosing,
+  RepairJob,
+  RepairHistory,
+  RepairStatus,
 } from "@/db/types"
 import { computeLoanDues } from "@/features/girvi/interest"
 import { makeTableRepo, withTransaction, tauriExecutor, type SqlExecutor } from "@/db/sqliteRepo"
 import { decodeRow } from "@/db/sqlBuilder"
 import { typesFor } from "@/db/sqliteSchema"
+import { assertAllowed } from "@/lib/permissions"
+import type { UserRole } from "@/db/systemDb"
 
 const nowIso = () => new Date().toISOString()
 const round = (n: number): number => Number(n.toFixed(2))
@@ -151,6 +162,13 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
   const purchasePaymentsRepo = makeTableRepo("purchase_payments", typesFor("purchase_payments"), exec)
   const purchaseReturnsRepo = makeTableRepo("purchase_returns", typesFor("purchase_returns"), exec)
   const receiptsRepo = makeTableRepo("receipts", typesFor("receipts"), exec)
+  const salesReturnsRepo = makeTableRepo("sales_returns", typesFor("sales_returns"), exec)
+  const salesReturnItemsRepo = makeTableRepo("sales_return_items", typesFor("sales_return_items"), exec)
+  const auditRepo = makeTableRepo("audit_log", typesFor("audit_log"), exec)
+  const ratesRepo = makeTableRepo("daily_metal_rates", typesFor("daily_metal_rates"), exec)
+  const vouchersRepo = makeTableRepo("cash_vouchers", typesFor("cash_vouchers"), exec)
+  const closingsRepo = makeTableRepo("day_closings", typesFor("day_closings"), exec)
+  const repairsRepo=makeTableRepo("repairs",typesFor("repairs"),exec), repairHistoryRepo=makeTableRepo("repair_history",typesFor("repair_history"),exec)
 
   /** DELETE every row of `table` matching one equality column (used by cascade rewrites). */
   const deleteWhere = (table: string, col: string, val: unknown) =>
@@ -168,6 +186,78 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     )
     return rows.map((r) => decodeRow<T>(r, typesFor(table)))
   }
+
+  const auditService = {
+    getAll: () => queryRows<AuditEntry>("audit_log", " ORDER BY id DESC"),
+    async add(entry: Omit<AuditEntry, "id" | "createdAt">): Promise<number> {
+      const row = await auditRepo.add({ ...entry, createdAt: nowIso() })
+      return Number(row.id)
+    },
+  }
+
+  const salesReturnsService = {
+    getAll: () => queryRows<SalesReturn>("sales_returns", " ORDER BY id DESC"),
+    getByInvoice: (invoiceId: number) => queryRows<SalesReturn>("sales_returns", " WHERE invoiceId = $1", [invoiceId]),
+    async create(input: import("@/services/dbService").SalesReturnDraft): Promise<SalesReturn> {
+      return withTransaction(exec, async () => {
+        const invoice = await salesRepo.get(input.invoiceId) as unknown as SalesInvoice | undefined
+        if (!invoice) throw new Error("Invoice not found")
+        const original = await queryRows<SalesItem>("sales_items", " WHERE invoiceId = $1", [input.invoiceId])
+        const prior = await queryRows<SalesReturnItem>("sales_return_items", " WHERE returnId IN (SELECT id FROM sales_returns WHERE invoiceId = $1)", [input.invoiceId])
+        let gross = 0
+        const lines: Omit<SalesReturnItem, "id" | "returnId">[] = []
+        for (const row of input.items) {
+          const source = original.find((x) => x.id === row.salesItemId)
+          if (!source) throw new Error("An invoice item no longer exists")
+          if (prior.some((x) => x.salesItemId === source.id)) throw new Error(`${source.description} was already returned`)
+          const ratio = source.netWt > 0 ? Math.min(1, row.netWt / source.netWt) : 1
+          const amount = round(source.finalAmount * ratio)
+          gross = round(gross + amount)
+          lines.push({ salesItemId: source.id!, itemId: source.itemId, description: source.description, netWt: row.netWt, taxableAmount: amount, disposition: row.disposition })
+        }
+        const base = invoice.totalGrossAmount || 1
+        const taxableAmount = round(gross / base * invoice.taxableAmount)
+        const cgst = round(gross / base * invoice.cgst), sgst = round(gross / base * invoice.sgst), igst = round(gross / base * (invoice.igst ?? 0))
+        const totalAmount = round(taxableAmount + cgst + sgst + igst)
+        if (input.refundAmount < 0 || input.refundAmount > totalAmount) throw new Error("Refund cannot exceed credit-note total")
+        const { code: returnNo } = await nextSequenceRaw(exec, "sales_return", { prefix: "CRN" })
+        const record = { returnNo, invoiceId: invoice.id!, customerId: invoice.customerId, date: input.date, reason: input.reason, taxableAmount, cgst, sgst, igst, totalAmount, refundMode: input.refundMode, refundAmount: input.refundAmount, customerCredit: round(totalAmount - input.refundAmount), notes: input.notes, createdBy: input.createdBy, createdAt: nowIso() }
+        const created = await salesReturnsRepo.add(record)
+        for (const line of lines) {
+          await salesReturnItemsRepo.add({ ...line, returnId: created.id! })
+          if (line.itemId) {
+            const status = line.disposition === "restock" ? "in_stock" : line.disposition === "repair" ? "with_karigar" : "melted"
+            await itemsRepo.update(line.itemId, { status, updatedAt: nowIso() })
+            await inventoryLedgerRepo.add({ itemId: line.itemId, date: input.date, movement: "in", weight: line.netWt, refType: "sales_return", refId: created.id, refNo: returnNo, description: `Sales return — ${line.description}`, createdAt: nowIso() })
+          }
+        }
+        await auditRepo.add({ createdAt: nowIso(), user: input.createdBy, action: "create_credit_note", entity: "sales_return", entityId: created.id, reason: input.reason, afterJson: JSON.stringify(record) })
+        return { ...record, id: created.id } as SalesReturn
+      })
+    },
+  }
+
+  const operationsService = {
+    getRates: (date?: string) => queryRows<DailyMetalRate>("daily_metal_rates", date ? " WHERE date = $1 ORDER BY effectiveAt DESC" : " ORDER BY id DESC", date ? [date] : []),
+    async getLatestRate() { return (await queryRows<DailyMetalRate>("daily_metal_rates", " ORDER BY effectiveAt DESC LIMIT 1"))[0] },
+    async addRate(input: Omit<DailyMetalRate, "id" | "effectiveAt" | "createdAt">) {
+      const record = { ...input, effectiveAt: nowIso(), createdAt: nowIso() }
+      const row = await ratesRepo.add(record); await auditRepo.add({ createdAt: nowIso(), user: input.createdBy, action: "set_metal_rates", entity: "daily_metal_rate", entityId: row.id, afterJson: JSON.stringify(record) }); return row as unknown as DailyMetalRate
+    },
+    getVouchers: (date?: string) => queryRows<CashVoucher>("cash_vouchers", date ? " WHERE date = $1 ORDER BY id DESC" : " ORDER BY id DESC", date ? [date] : []),
+    async addVoucher(input: Omit<CashVoucher, "id" | "voucherNo" | "createdAt">) {
+      return withTransaction(exec, async () => { if (!(input.amount > 0)) throw new Error("Amount must be greater than zero"); const { code: voucherNo } = await nextSequenceRaw(exec, input.kind === "payment" ? "payment_voucher" : "receipt_voucher", { prefix: input.kind === "payment" ? "PV" : "RV" }); const record = { ...input, voucherNo, createdAt: nowIso() }; const row = await vouchersRepo.add(record); await auditRepo.add({ createdAt: nowIso(), user: input.createdBy, action: `create_${input.kind}_voucher`, entity: "cash_voucher", entityId: row.id, afterJson: JSON.stringify(record) }); return row as unknown as CashVoucher })
+    },
+    async getClosing(date: string) { return (await queryRows<DayClosing>("day_closings", " WHERE date = $1", [date]))[0] },
+    async closeDay(input: { date: string; openingCash: number; physicalCash: number; notes?: string; closedBy?: string }) {
+      if ((await queryRows("day_closings", " WHERE date = $1", [input.date])).length) throw new Error("This day is already closed")
+      const cashIn = await exec.query<{ n: number }>("SELECT COALESCE(SUM(cashPaid),0) n FROM sales_invoices WHERE date=$1", [input.date])
+      const voucherNet = await exec.query<{ n: number }>("SELECT COALESCE(SUM(CASE WHEN kind='receipt' THEN amount ELSE -amount END),0) n FROM cash_vouchers WHERE date=$1 AND mode='cash'", [input.date])
+      const expectedCash = round(input.openingCash + (cashIn[0]?.n ?? 0) + (voucherNet[0]?.n ?? 0)); const record = { ...input, expectedCash, difference: round(input.physicalCash - expectedCash), closedAt: nowIso() }; const row = await closingsRepo.add(record); await auditRepo.add({ createdAt: nowIso(), user: input.closedBy, action: "close_day", entity: "day_closing", entityId: row.id, afterJson: JSON.stringify(record) }); return row as unknown as DayClosing
+    },
+  }
+  const repairsService={getAll:()=>queryRows<RepairJob>("repairs"," ORDER BY id DESC"),getHistory:(repairId:number)=>queryRows<RepairHistory>("repair_history"," WHERE repairId=$1 ORDER BY at",[repairId]),async add(input:Omit<RepairJob,"id"|"repairNo"|"status"|"createdAt"|"updatedAt">){return withTransaction(exec,async()=>{const{code:repairNo}=await nextSequenceRaw(exec,"repair",{prefix:"REP"}),now=nowIso();const record={...input,repairNo,status:"received" as const,createdAt:now,updatedAt:now};const row=await repairsRepo.add(record);await repairHistoryRepo.add({repairId:row.id,status:"received",at:now,by:input.createdBy});await auditRepo.add({createdAt:now,user:input.createdBy,action:"repair_intake",entity:"repair",entityId:row.id,afterJson:JSON.stringify(record)});return row as unknown as RepairJob})},async setStatus(id:number,status:RepairStatus,context:{user?:string;reason?:string;finalAmount?:number}){return withTransaction(exec,async()=>{const before=await repairsRepo.get(id) as unknown as RepairJob|undefined;if(!before)throw new Error("Repair not found");if(before.status==="delivered")throw new Error("Delivered repair cannot be changed");const now=nowIso(),patch={status,updatedBy:context.user,updatedAt:now,...(context.finalAmount!=null?{finalAmount:context.finalAmount}:{}),...(status==="delivered"?{deliveredDate:todayStr()}: {})};await repairsRepo.update(id,patch);await repairHistoryRepo.add({repairId:id,status,at:now,by:context.user,reason:context.reason});await auditRepo.add({createdAt:now,user:context.user,action:"repair_status",entity:"repair",entityId:id,reason:context.reason,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})})}}
+  const metalStockService={async summary(){const items=await queryRows<Item>("items"),jobs=await queryRows<KarigarJob>("karigar_jobs"),urd=await queryRows<UrdItem>("urd_items");const map=new Map<string,any>(),pct=(p:string)=>{const m=p.match(/\((\d{3})\)/)||p.match(/(\d{3})/);if(m)return Number(m[1])/1000;const k=p.match(/(\d{1,2})K/i);return k?Number(k[1])/24:1},add=(metal:string,purity:string,location:string,w:number)=>{const key=`${metal}|${purity}|${location}`,x=map.get(key)??{metal,purity,location,weight:0,fineWeight:0};x.weight=round3(x.weight+w);x.fineWeight=round3(x.fineWeight+w*pct(purity));map.set(key,x)};for(const i of items)if((i.status??"in_stock")!=="sold"&&i.status!=="melted")add(i.type,i.purity,i.status==="with_karigar"?"With karigar":"Shop stock",i.netWt);for(const j of jobs.filter(x=>x.status==="issued"))add("gold","Unspecified","With karigar",j.metalIssuedWt);for(const u of urd)add(u.type,u.purity||"Untested","URD awaiting refining",u.netWt);return[...map.values()]}}
 
   /**
    * Insert an item WITHOUT its own transaction — the shared core of
@@ -236,7 +326,8 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       },
     ): Promise<Item> => withTransaction(exec, () => addItemRaw(input)),
 
-    async update(id: number, patch: Partial<Item>): Promise<void> {
+    async update(id: number, patch: Partial<Item>, context?: { user?: string; role?: UserRole; reason?: string }): Promise<void> {
+      const before=context?await itemsRepo.get(id) as unknown as Item|undefined:undefined
       const next: Partial<Item> = { ...patch, updatedAt: nowIso() }
       if (patch.grossWt != null || patch.stoneWt != null) {
         const existing = (await itemsRepo.get(id)) as unknown as Item | undefined
@@ -248,9 +339,11 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
         }
       }
       await itemsRepo.update(id, next)
+      if(context&&before&&next.netWt!=null&&next.netWt!==before.netWt)await inventoryLedgerRepo.add({itemId:id,date:todayStr(),movement:next.netWt>before.netWt?"in":"out",weight:Math.abs(next.netWt-before.netWt),refType:"stock_adjustment",refId:id,refNo:before.tag,description:context.reason,createdBy:context.user,createdAt:nowIso()})
+      if(context)await auditRepo.add({createdAt:nowIso(),user:context.user,action:"stock_adjustment",entity:"item",entityId:id,reason:context.reason,beforeJson:JSON.stringify(before),afterJson:JSON.stringify(await itemsRepo.get(id))})
     },
 
-    remove: (id: number) => itemsRepo.remove(id),
+    async remove(id:number,actor?:{user?:string;role?:UserRole;reason?:string}){assertAllowed(actor?.role,"permanent_delete");const before=await itemsRepo.get(id);await itemsRepo.remove(id);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"permanent_delete",entity:"item",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)})},
 
     async search(term: string): Promise<Item[]> {
       const q = term.trim().toLowerCase()
@@ -285,7 +378,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     update: (id: number, patch: Partial<Customer>) =>
       customersRepo.update(id, { ...patch, updatedAt: nowIso() }),
 
-    remove: (id: number) => customersRepo.remove(id),
+    async remove(id:number,actor?:{user?:string;role?:UserRole;reason?:string}){assertAllowed(actor?.role,"permanent_delete");const before=await customersRepo.get(id);await customersRepo.remove(id);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"permanent_delete",entity:"customer",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)})},
 
     async search(term: string): Promise<Customer[]> {
       const q = term.trim().toLowerCase()
@@ -367,8 +460,9 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
 
         // Mark any tagged stock as sold.
         for (const li of draft.items) {
-          if (li.itemId) await itemsRepo.update(li.itemId, { status: "sold" })
+          if (li.itemId) { await itemsRepo.update(li.itemId, { status: "sold" }); await inventoryLedgerRepo.add({itemId:li.itemId,date:header.date,movement:"out",weight:li.netWt,refType:"sale",refId:invoiceId,refNo:invoiceNo,description:li.description,createdAt:nowIso()}) }
         }
+        for(const u of draft.urd)await inventoryLedgerRepo.add({date:header.date,movement:"in",weight:u.netWt,refType:"urd",refId:invoiceId,refNo:invoiceNo,description:u.description,createdAt:nowIso()})
 
         // Apply loyalty points (earned − redeemed) to the customer.
         const delta = (header.pointsEarned ?? 0) - (header.pointsRedeemed ?? 0)
@@ -387,6 +481,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
         if (header.orderId) {
           await ordersRepo.update(header.orderId, { status: "delivered", invoiceId })
         }
+        if (draft.audit?.reason) await auditRepo.add({ createdAt: nowIso(), user: draft.audit.user, action: "discount_override", entity: "sales_invoice", entityId: invoiceId, reason: draft.audit.reason, afterJson: JSON.stringify(header) })
 
         return { ...header, id: invoiceId } as SalesInvoice
       })
@@ -413,9 +508,11 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
         for (const li of draft.items) {
           if (li.itemId) await itemsRepo.update(li.itemId, { status: "sold" })
         }
+        await auditRepo.add({ createdAt: nowIso(), user: draft.audit?.user, action: "edit_invoice", entity: "sales_invoice", entityId: id, reason: draft.audit?.reason, beforeJson: JSON.stringify(existing), afterJson: JSON.stringify(await salesRepo.get(id)) })
         return (await salesRepo.get(id)) as unknown as SalesInvoice
       })
     },
+    async cancelInvoice(id:number,context:{user?:string;reason:string}):Promise<void>{if(!context.reason.trim())throw new Error("A cancellation reason is required");return withTransaction(exec,async()=>{const before=await salesRepo.get(id) as unknown as SalesInvoice|undefined;if(!before)throw new Error("Invoice not found");if(before.cancelled)throw new Error("Invoice is already cancelled");const lines=await salesItemsRepo.where({invoiceId:id} as never) as unknown as SalesItem[];for(const x of lines)if(x.itemId){await itemsRepo.update(x.itemId,{status:"in_stock",updatedAt:nowIso()});await inventoryLedgerRepo.add({itemId:x.itemId,date:todayStr(),movement:"in",weight:x.netWt,refType:"invoice_cancel",refId:id,refNo:before.invoiceNo,description:x.description,createdAt:nowIso()})}const patch={cancelled:true,cancelReason:context.reason,cancelledAt:nowIso(),cancelledBy:context.user,balance:0};await salesRepo.update(id,patch as never);await auditRepo.add({createdAt:nowIso(),user:context.user,action:"cancel_invoice",entity:"sales_invoice",entityId:id,reason:context.reason,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})})},
   }
 
   const loansService = {
@@ -529,6 +626,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
           createdAt: nowIso(),
         }
         const created = (await karigarJobsRepo.add(record as never)) as unknown as KarigarJob
+        await inventoryLedgerRepo.add({date:input.issuedDate,movement:"out",weight:input.metalIssuedWt,refType:"karigar_issue",refId:created.id,refNo:jobNo,description:input.description,createdAt:nowIso()})
         const karigar = (await karigarsRepo.get(input.karigarId)) as unknown as Karigar | undefined
         if (karigar) {
           await karigarsRepo.update(input.karigarId, {
@@ -552,6 +650,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
           status: "received",
           receivedDate: todayStr(),
         })
+        await inventoryLedgerRepo.add({date:todayStr(),movement:"in",weight:finishedWt,refType:"karigar_receive",refId:jobId,refNo:job.jobNo,description:job.description,createdAt:nowIso()})
         const karigar = (await karigarsRepo.get(job.karigarId)) as unknown as Karigar | undefined
         if (karigar) {
           await karigarsRepo.update(job.karigarId, {
@@ -806,6 +905,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
         const created = (await purchaseRepo.add(header as never)) as { id: number }
         const purchaseId = created.id
         for (const li of draft.items) await purchaseItemsRepo.add({ ...li, purchaseId } as never)
+        for(const li of draft.items)await inventoryLedgerRepo.add({date:header.date,movement:"in",weight:li.netWt,refType:"purchase",refId:purchaseId,refNo:purchaseNo,description:`${li.description} · ${li.purity}`,createdAt:nowIso()})
         return { ...header, id: purchaseId } as PurchaseInvoice
       })
     },
@@ -814,7 +914,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
   const refinersService = {
     getAll: () => refinersRepo.getAll(["name", "ASC"]) as unknown as Promise<Refiner[]>,
     get: (id: number) => refinersRepo.get(id) as unknown as Promise<Refiner | undefined>,
-    remove: (id: number) => refinersRepo.remove(id),
+    async remove(id:number,actor?:{user?:string;role?:UserRole;reason?:string}){assertAllowed(actor?.role,"permanent_delete");const before=await refinersRepo.get(id);await refinersRepo.remove(id);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"permanent_delete",entity:"refiner",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)})},
     update: (id: number, patch: Partial<Refiner>) =>
       refinersRepo.update(id, { ...patch, updatedAt: nowIso() }),
     async add(input: Omit<Refiner, "id" | "createdAt" | "updatedAt">): Promise<Refiner> {
@@ -997,7 +1097,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     async getDayBook(date: string = todayStr()): Promise<DayBookSummary> {
       const invoices = await queryRows<Record<string, number>>(
         "sales_invoices",
-        " WHERE date = $1",
+        " WHERE date = $1 AND COALESCE(cancelled,0)=0",
         [date],
       )
       return {
@@ -1032,7 +1132,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       const events: Ev[] = []
       for (const inv of invoices) {
         events.push({ date: inv.date, ref: inv.invoiceNo, particulars: "Sales Invoice", debit: inv.netAmount, credit: 0 })
-        const paid = round(inv.cashPaid + inv.upiPaid)
+        const paid = round(inv.cashPaid + inv.upiPaid + (inv.paymentDetails ?? []).reduce((s: number, p: { amount: number }) => s + p.amount, 0))
         if (paid > 0) {
           events.push({ date: inv.date, ref: inv.invoiceNo, particulars: "Paid with bill", debit: 0, credit: paid })
         }
@@ -1065,7 +1165,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       const rows: CashBookRow[] = []
       const invoices = await queryRows<any>("sales_invoices", " WHERE date = $1", [date])
       for (const inv of invoices) {
-        const inflow = round(inv.cashPaid + inv.upiPaid)
+        const inflow = round(inv.cashPaid + inv.upiPaid + (inv.paymentDetails ?? []).reduce((s: number, p: { amount: number }) => s + p.amount, 0))
         if (inflow > 0) rows.push({ date, ref: inv.invoiceNo, particulars: "Sale receipt", inflow, outflow: 0 })
       }
       const receipts = await queryRows<any>("receipts", " WHERE date = $1", [date])
@@ -1093,7 +1193,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     async gstr1(month: string): Promise<Gstr1Row[]> {
       const invoices = await queryRows<any>(
         "sales_invoices",
-        " WHERE date LIKE $1",
+        " WHERE date LIKE $1 AND COALESCE(cancelled,0)=0",
         [`${month}%`],
       )
       const customers = (await customersRepo.getAll()) as unknown as Customer[]
@@ -1159,7 +1259,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       )
       const defaultHsn = companyRows[0]?.defaultHsnCode || "7113"
 
-      const invoices = await queryRows<any>("sales_invoices", " WHERE date LIKE $1", [`${month}%`])
+      const invoices = await queryRows<any>("sales_invoices", " WHERE date LIKE $1 AND COALESCE(cancelled,0)=0", [`${month}%`])
       if (!invoices.length) return []
 
       const invoiceIds = invoices.map((i) => i.id)
@@ -1241,5 +1341,10 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     ordersService,
     reportsService,
     ledgerService,
+    salesReturnsService,
+    auditService,
+    operationsService,
+    repairsService,
+    metalStockService,
   }
 }

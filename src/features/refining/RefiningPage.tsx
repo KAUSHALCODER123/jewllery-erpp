@@ -321,8 +321,10 @@ export function RefiningPage() {
 
   const deleteRefiner = async (r: Refiner) => {
     if (!r.id) return
-    if (!confirm(`Delete refiner ${r.name}?`)) return
-    await refinersService.remove(r.id)
+    if (user?.role !== "owner") return toast.error("Permanent deletion is reserved for the Owner")
+    const reason = window.prompt(`Reason to permanently delete ${r.name}:`)?.trim()
+    if (!reason || !confirm(`Permanently delete refiner ${r.name}?`)) return
+    await refinersService.remove(r.id, { user: user.name, role: user.role, reason })
     toast.success(`Deleted ${r.name}`)
   }
 

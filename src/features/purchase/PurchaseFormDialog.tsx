@@ -210,10 +210,23 @@ export function PurchaseFormDialog({
         amount: rowAmount(r),
       })),
     }
+    let saved
     try {
-      const saved = await purchaseService.create(draft)
-      const stockRows = items.filter((r) => r.addToStock)
-      for (const r of stockRows) {
+      saved = await purchaseService.create(draft)
+    } catch (err) {
+      toast.error(`Could not save purchase: ${(err as Error).message}`)
+      return
+    }
+
+    // The purchase is now committed. Adding the ticked rows to stock is a
+    // separate, best-effort step: one row failing must NOT abort the others or
+    // masquerade as a purchase-save failure — otherwise the bill saves while the
+    // items silently don't, with a misleading "could not save" error.
+    const stockRows = items.filter((r) => r.addToStock)
+    let added = 0
+    const failures: string[] = []
+    for (const r of stockRows) {
+      try {
         await itemsService.add({
           name: r.description || "Item",
           type: r.type,
@@ -226,14 +239,22 @@ export function PurchaseFormDialog({
           quantity: 1,
           tagPrefix: categoryByLabel(r.category)?.prefix ?? "ITM",
         })
+        added++
+      } catch (err) {
+        failures.push(`${r.description || "Item"}: ${(err as Error).message}`)
       }
-      toast.success(
-        `Saved ${saved.purchaseNo}${stockRows.length ? ` · ${stockRows.length} item(s) added to stock` : ""}`,
-      )
-      onOpenChange(false)
-    } catch (err) {
-      toast.error(`Could not save: ${(err as Error).message}`)
     }
+
+    if (failures.length) {
+      toast.error(
+        `Saved ${saved.purchaseNo}, but ${failures.length} item(s) could not be added to stock — ${failures[0]}`,
+      )
+    } else {
+      toast.success(
+        `Saved ${saved.purchaseNo}${added ? ` · ${added} item(s) added to stock` : ""}`,
+      )
+    }
+    onOpenChange(false)
   }
 
   return (

@@ -183,6 +183,8 @@ function PrintSettings() {
     loyaltyEarnPerGram: 1,
     loyaltyRupeesPerPoint: 1,
     loyaltyMaxPoints: 0,
+    discountDirectLimit: 500,
+    discountReasonLimit: 2000,
   })
   const [colorMode, setColorMode] = useState("default")
 
@@ -205,6 +207,8 @@ function PrintSettings() {
         loyaltyEarnPerGram: company.loyaltyEarnPerGram ?? 1,
         loyaltyRupeesPerPoint: company.loyaltyRupeesPerPoint ?? 1,
         loyaltyMaxPoints: company.loyaltyMaxPoints ?? 0,
+        discountDirectLimit: company.discountDirectLimit ?? 500,
+        discountReasonLimit: company.discountReasonLimit ?? 2000,
       })
 
       const accentColor = company.printAccentColor ?? "#000000"
@@ -258,6 +262,8 @@ function PrintSettings() {
       loyaltyEarnPerGram: form.loyaltyEarnPerGram,
       loyaltyRupeesPerPoint: form.loyaltyRupeesPerPoint,
       loyaltyMaxPoints: form.loyaltyMaxPoints,
+      discountDirectLimit: form.discountDirectLimit,
+      discountReasonLimit: Math.max(form.discountDirectLimit, form.discountReasonLimit),
     }
     await authService.updateCompany(company.id, patch)
     setCompanyProfile({ ...company, ...patch })
@@ -496,6 +502,12 @@ function PrintSettings() {
               onChange={(e) => setForm({ ...form, loyaltyMaxPoints: e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0) })}
             />
           </Field>
+          <Field label="Discount allowed directly (₹)">
+            <Input type="number" min={0} value={form.discountDirectLimit || ""} onChange={(e) => setForm({ ...form, discountDirectLimit: Math.max(0, e.target.valueAsNumber || 0) })} />
+          </Field>
+          <Field label="Reason allowed up to (₹)">
+            <Input type="number" min={0} value={form.discountReasonLimit || ""} onChange={(e) => setForm({ ...form, discountReasonLimit: Math.max(0, e.target.valueAsNumber || 0) })} />
+          </Field>
         </div>
       </div>
 
@@ -605,10 +617,11 @@ function Firms() {
 }
 
 function UsersAdmin() {
+  const actor = useSession((s) => s.user)
   const users = useLiveData(() => authService.listUsers(), [], [])
   const [username, setUsername] = useState("")
   const [name, setName] = useState("")
-  const [role, setRole] = useState<UserRole>("cashier")
+  const [role, setRole] = useState<UserRole>("staff")
   const [password, setPassword] = useState("")
 
   const add = async () => {
@@ -616,11 +629,11 @@ function UsersAdmin() {
       return toast.error("Fill username, name and password")
     }
     try {
-      await authService.addUser({ username, name, role, password })
+      await authService.addUser({ username, name, role, password, actorRole: actor?.role ?? "staff" })
       toast.success(`User ${username} created`)
       setUsername("")
       setName("")
-      setRole("cashier")
+      setRole("staff")
       setPassword("")
     } catch (err) {
       toast.error((err as Error).message)
@@ -648,7 +661,7 @@ function UsersAdmin() {
               <SelectContent>
                 <SelectItem value="owner">Owner</SelectItem>
                 <SelectItem value="manager">Manager</SelectItem>
-                <SelectItem value="cashier">Cashier</SelectItem>
+                <SelectItem value="staff">Staff</SelectItem>
               </SelectContent>
             </Select>
           </Field>
@@ -699,7 +712,7 @@ function UsersAdmin() {
                       variant="ghost"
                       size="sm"
                       onClick={async () => {
-                        await authService.setActive(u.id!, !u.active)
+                        await authService.setActive(u.id!, !u.active, actor?.role ?? "staff")
                         toast.success(`${u.username} ${u.active ? "disabled" : "enabled"}`)
                       }}
                     >
@@ -754,6 +767,7 @@ function MyAccount() {
 }
 
 function Backup() {
+  const user = useSession((s) => s.user)
   const company = useSession((s) => s.company)
   const financialYear = useSession((s) => s.financialYear)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -872,6 +886,7 @@ function Backup() {
 
   const handleFileChange = async (file?: File) => {
     if (!file) return
+    if (user?.role !== "owner") return toast.error("Only the Owner can restore backups")
     try {
       const text = await file.text()
       const backup = JSON.parse(text) as BackupFile
@@ -888,6 +903,7 @@ function Backup() {
 
   const confirmRestore = async () => {
     if (!previewBackup || confirmText !== "RESTORE") return
+    if (user?.role !== "owner") return toast.error("Only the Owner can restore backups")
     setIsRestoring(true)
     try {
       if (previewBackup.scope === "system") {

@@ -10,7 +10,7 @@ import type { ColumnTypes } from "./sqlBuilder"
 export const TABLE_TYPES: Record<string, ColumnTypes> = {
   items: {},
   customers: {},
-  sales_invoices: { bools: ["interState"] },
+  sales_invoices: { bools: ["interState", "cancelled"], json: ["paymentDetails"] },
   sales_items: {},
   urd_items: {},
   loans: { bools: ["isClosed"], json: ["itemsPledged"] },
@@ -33,6 +33,14 @@ export const TABLE_TYPES: Record<string, ColumnTypes> = {
   bullion_stock: {},
   bullion_movement: {},
   inventory_ledger: {},
+  sales_returns: {},
+  sales_return_items: {},
+  audit_log: {},
+  daily_metal_rates: {},
+  cash_vouchers: {},
+  day_closings: {},
+  repairs: {},
+  repair_history: {},
   counters: {},
   // system DB
   users: { bools: ["active"] },

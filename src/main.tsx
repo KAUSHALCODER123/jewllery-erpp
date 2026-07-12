@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import "./index.css"
 import App from "./App.tsx"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 
 // DEV-only test bridge (window.__jewel) for Playwright end-to-end/"API" tests.
 // import.meta.env.DEV is false in production builds, so this whole block —
@@ -24,8 +25,10 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </ErrorBoundary>
   </StrictMode>,
 )

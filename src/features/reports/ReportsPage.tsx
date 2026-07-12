@@ -2,7 +2,7 @@ import { useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
 import { Download, FileBarChart } from "lucide-react"
 import * as XLSX from "xlsx"
-import { ledgerService, todayStr } from "@/services/dbService"
+import { ledgerService, metalStockService, todayStr } from "@/services/dbService"
 import { formatAmount } from "@/lib/format"
 import { toCsv, downloadText } from "@/lib/csv"
 import { defaultWaTemplate, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
@@ -38,6 +38,7 @@ export function ReportsPage() {
             <TabsTrigger value="debtors">Sundry Debtors</TabsTrigger>
             <TabsTrigger value="gstr1">GSTR-1</TabsTrigger>
             <TabsTrigger value="hsn">HSN Summary</TabsTrigger>
+            <TabsTrigger value="metal">Metal Stock</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="ledger" className="min-h-0 flex-1 overflow-auto p-4">
@@ -55,10 +56,12 @@ export function ReportsPage() {
         <TabsContent value="hsn" className="min-h-0 flex-1 overflow-auto p-4">
           <HsnSummary />
         </TabsContent>
+        <TabsContent value="metal" className="min-h-0 flex-1 overflow-auto p-4"><MetalStock/></TabsContent>
       </Tabs>
     </>
   )
 }
+function MetalStock(){const rows=useLiveData(()=>metalStockService.summary(),[],[]);const total=rows.reduce((s,r)=>s+r.fineWeight,0);return <div className="space-y-3"><div className="text-right text-sm"><span className="text-muted-foreground">Total fine-metal equivalent: </span><b>{total.toFixed(3)} g</b></div><div className="rounded-md border"><Table><TableHeader><TableRow><TableHead>Metal</TableHead><TableHead>Purity</TableHead><TableHead>Location</TableHead><TableHead className="text-right">Weight (g)</TableHead><TableHead className="text-right">Fine equivalent (g)</TableHead></TableRow></TableHeader><TableBody>{rows.map((r,i)=><TableRow key={`${r.metal}${r.purity}${r.location}${i}`}><TableCell className="capitalize">{r.metal}</TableCell><TableCell>{r.purity}</TableCell><TableCell>{r.location}</TableCell><TableCell className="text-right">{r.weight.toFixed(3)}</TableCell><TableCell className="text-right font-medium">{r.fineWeight.toFixed(3)}</TableCell></TableRow>)}</TableBody></Table></div></div>}
 
 function PartyLedger() {
   const [customerId, setCustomerId] = useState<number | null>(null)

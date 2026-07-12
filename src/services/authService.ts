@@ -11,6 +11,7 @@ import { isTauri, systemExecutor } from "@/db/sqlite"
 import { SQLITE_CUTOVER_ENABLED } from "@/db/persistence"
 import { makeSqliteAuth } from "@/services/sqliteAuth"
 import { hashPassword, randomSalt } from "@/services/passwordHash"
+import { assertAllowed } from "@/lib/permissions"
 
 export { hashPassword }
 
@@ -24,6 +25,7 @@ const nowIso = () => new Date().toISOString()
 let bootstrapPromise: Promise<void> | null = null
 
 async function runBootstrap(): Promise<void> {
+  await systemDb.users.where("role").equals("cashier" as UserRole).modify({ role: "staff" })
   const companyCount = await systemDb.companies.count()
   if (companyCount === 0) {
     await systemDb.companies.add({
@@ -73,7 +75,9 @@ const authServiceDexie = {
     name: string
     role: UserRole
     password: string
+    actorRole: UserRole
   }): Promise<User> {
+    assertAllowed(input.actorRole, "manage_users")
     const existing = await systemDb.users
       .where("username")
       .equalsIgnoreCase(input.username)
@@ -93,7 +97,8 @@ const authServiceDexie = {
     return { ...record, id }
   },
 
-  async setActive(userId: number, active: boolean): Promise<void> {
+  async setActive(userId: number, active: boolean, actorRole: UserRole): Promise<void> {
+    assertAllowed(actorRole, "manage_users")
     await systemDb.users.update(userId, { active })
   },
 

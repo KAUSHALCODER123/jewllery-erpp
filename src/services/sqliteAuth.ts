@@ -13,6 +13,7 @@ import { makeTableRepo, type SqlExecutor } from "@/db/sqliteRepo"
 import { decodeRow } from "@/db/sqlBuilder"
 import { typesFor } from "@/db/sqliteSchema"
 import { hashPassword, randomSalt } from "@/services/passwordHash"
+import { assertAllowed } from "@/lib/permissions"
 
 const nowIso = () => new Date().toISOString()
 
@@ -24,6 +25,7 @@ export function makeSqliteAuth(exec: SqlExecutor) {
   // share one run and never double-insert the default firm + admin.
   let bootstrapPromise: Promise<void> | null = null
   const runBootstrap = async (): Promise<void> => {
+    await exec.run("UPDATE users SET role = 'staff' WHERE role = 'cashier'")
     if ((await companiesRepo.count()) === 0) {
       await companiesRepo.add({ name: "My Jewellery Shop", city: "Pune", createdAt: nowIso() } as never)
     }
@@ -67,7 +69,8 @@ export function makeSqliteAuth(exec: SqlExecutor) {
 
     listUsers: () => usersRepo.getAll(["username", "ASC"]) as unknown as Promise<User[]>,
 
-    async addUser(input: { username: string; name: string; role: UserRole; password: string }): Promise<User> {
+    async addUser(input: { username: string; name: string; role: UserRole; password: string; actorRole: UserRole }): Promise<User> {
+      assertAllowed(input.actorRole,"manage_users")
       if (await findByUsername(input.username)) throw new Error("Username already exists")
       const salt = randomSalt()
       const record: Omit<User, "id"> = {
@@ -82,7 +85,8 @@ export function makeSqliteAuth(exec: SqlExecutor) {
       return (await usersRepo.add(record as never)) as unknown as User
     },
 
-    async setActive(userId: number, active: boolean): Promise<void> {
+    async setActive(userId: number, active: boolean, actorRole: UserRole): Promise<void> {
+      assertAllowed(actorRole,"manage_users")
       await usersRepo.update(userId, { active } as never)
     },
 

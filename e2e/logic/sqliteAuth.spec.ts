@@ -92,7 +92,7 @@ test.describe("login", () => {
 test("addUser rejects a duplicate username (case-insensitive)", async () => {
   const { exec } = fakeExecutor([{ match: /FROM users WHERE lower\(username\)/, rows: [{ id: 1, username: "admin" }] }])
   await expect(
-    makeSqliteAuth(exec).addUser({ username: "ADMIN", name: "x", role: "cashier", password: "p" }),
+    makeSqliteAuth(exec).addUser({ username: "ADMIN", name: "x", role: "staff", password: "p", actorRole: "owner" }),
   ).rejects.toThrow(/already exists/i)
 })
 

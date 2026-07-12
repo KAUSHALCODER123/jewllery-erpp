@@ -77,11 +77,16 @@ CREATE TABLE IF NOT EXISTS sales_invoices (
   netAmount        REAL NOT NULL DEFAULT 0,
   cashPaid         REAL NOT NULL DEFAULT 0,
   upiPaid          REAL NOT NULL DEFAULT 0,
+  paymentDetails   TEXT,
   balance          REAL NOT NULL DEFAULT 0,
   notes            TEXT,
   orderId          INTEGER,
   advanceApplied   REAL,
   createdAt        TEXT
+  ,cancelled       INTEGER DEFAULT 0
+  ,cancelReason    TEXT
+  ,cancelledAt     TEXT
+  ,cancelledBy     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sinv_customer ON sales_invoices(customerId);
 CREATE INDEX IF NOT EXISTS idx_sinv_date ON sales_invoices(date);
@@ -113,6 +118,60 @@ CREATE TABLE IF NOT EXISTS urd_items (
   amount      REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_urd_invoice ON urd_items(invoiceId);
+
+-- ---------- Sales returns / GST credit notes ----------
+CREATE TABLE IF NOT EXISTS sales_returns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, returnNo TEXT NOT NULL UNIQUE,
+  invoiceId INTEGER NOT NULL, customerId INTEGER NOT NULL, date TEXT NOT NULL,
+  reason TEXT NOT NULL, taxableAmount REAL NOT NULL DEFAULT 0,
+  cgst REAL NOT NULL DEFAULT 0, sgst REAL NOT NULL DEFAULT 0, igst REAL NOT NULL DEFAULT 0,
+  totalAmount REAL NOT NULL DEFAULT 0, refundMode TEXT, refundAmount REAL NOT NULL DEFAULT 0,
+  customerCredit REAL NOT NULL DEFAULT 0, notes TEXT, createdBy TEXT, createdAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sret_invoice ON sales_returns(invoiceId);
+CREATE INDEX IF NOT EXISTS idx_sret_customer ON sales_returns(customerId);
+CREATE TABLE IF NOT EXISTS sales_return_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, returnId INTEGER NOT NULL, salesItemId INTEGER NOT NULL,
+  itemId INTEGER, description TEXT NOT NULL, netWt REAL NOT NULL DEFAULT 0,
+  taxableAmount REAL NOT NULL DEFAULT 0, disposition TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sretitem_return ON sales_return_items(returnId);
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, createdAt TEXT NOT NULL, user TEXT,
+  action TEXT NOT NULL, entity TEXT NOT NULL, entityId INTEGER, reason TEXT,
+  beforeJson TEXT, afterJson TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity, entityId);
+CREATE TABLE IF NOT EXISTS daily_metal_rates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL, effectiveAt TEXT NOT NULL,
+  gold24k REAL NOT NULL DEFAULT 0, gold22k REAL NOT NULL DEFAULT 0, gold18k REAL NOT NULL DEFAULT 0,
+  silver REAL NOT NULL DEFAULT 0, oldGoldBuy22k REAL NOT NULL DEFAULT 0,
+  notes TEXT, createdBy TEXT, createdAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rates_date ON daily_metal_rates(date);
+CREATE TABLE IF NOT EXISTS cash_vouchers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, voucherNo TEXT NOT NULL UNIQUE, date TEXT NOT NULL,
+  kind TEXT NOT NULL, category TEXT NOT NULL, mode TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0,
+  party TEXT, reference TEXT, notes TEXT, createdBy TEXT, createdAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vouchers_date ON cash_vouchers(date);
+CREATE TABLE IF NOT EXISTS day_closings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT NOT NULL UNIQUE,
+  openingCash REAL NOT NULL DEFAULT 0, expectedCash REAL NOT NULL DEFAULT 0,
+  physicalCash REAL NOT NULL DEFAULT 0, difference REAL NOT NULL DEFAULT 0,
+  notes TEXT, closedBy TEXT, closedAt TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS repairs (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, repairNo TEXT NOT NULL UNIQUE, customerId INTEGER NOT NULL,
+ receivedDate TEXT NOT NULL, promisedDate TEXT, description TEXT NOT NULL, condition TEXT,
+ grossWt REAL, purity TEXT, image TEXT, estimatedAmount REAL NOT NULL DEFAULT 0,
+ advanceAmount REAL NOT NULL DEFAULT 0, finalAmount REAL, workNotes TEXT, status TEXT NOT NULL,
+ deliveredDate TEXT, createdBy TEXT, updatedBy TEXT, createdAt TEXT, updatedAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_repairs_customer ON repairs(customerId);
+CREATE INDEX IF NOT EXISTS idx_repairs_status ON repairs(status);
+CREATE TABLE IF NOT EXISTS repair_history (id INTEGER PRIMARY KEY AUTOINCREMENT, repairId INTEGER NOT NULL, status TEXT NOT NULL, at TEXT NOT NULL, by TEXT, reason TEXT);
+CREATE INDEX IF NOT EXISTS idx_repair_history ON repair_history(repairId);
 
 -- ---------- Girvi (gold loans) ----------
 CREATE TABLE IF NOT EXISTS loans (
@@ -525,6 +584,8 @@ CREATE TABLE IF NOT EXISTS companies (
   loyaltyEarnPerGram  REAL,
   loyaltyRupeesPerPoint REAL,
   loyaltyMaxPoints    REAL,
+  discountDirectLimit REAL,
+  discountReasonLimit REAL,
   templateInvoice     TEXT,
   templateDues        TEXT,
   templateGirvi       TEXT,

@@ -14,8 +14,10 @@ import {
   Clock,
   Landmark,
   Pencil,
+  XCircle,
 } from "lucide-react"
 import { usePosStore } from "@/features/pos/usePosStore"
+import { useSession } from "@/stores/useSession"
 import {
   reportsService,
   salesService,
@@ -46,6 +48,7 @@ function shiftDay(iso: string, days: number): string {
 }
 
 export function DayBookPage() {
+  const user = useSession((s) => s.user)
   const [date, setDate] = useState(todayStr())
   const navigate = useNavigate()
   const loadForEdit = usePosStore((s) => s.loadForEdit)
@@ -53,8 +56,21 @@ export function DayBookPage() {
   const editInvoice = async (invoiceId: number) => {
     const full = await salesService.getFull(invoiceId)
     if (!full) return toast.error("Invoice not found")
+    if (full.invoice.date !== todayStr()) {
+      const reason = window.prompt("Reason for editing a previous-day invoice:")?.trim()
+      if (!reason) return toast.error("A reason is required for previous-day edits")
+      loadForEdit({ ...full, editReason: reason, editUser: user?.name })
+      navigate("/billing")
+      return
+    }
     loadForEdit(full)
     navigate("/billing")
+  }
+  const cancelInvoice = async (invoiceId: number) => {
+    const reason = window.prompt("Reason for cancelling this invoice:")?.trim()
+    if (!reason) return toast.error("A reason is required")
+    try { await salesService.cancelInvoice(invoiceId, { user: user?.name, reason }); toast.success("Invoice cancelled; tagged stock restored") }
+    catch (e) { toast.error((e as Error).message) }
   }
 
   const summary = useLiveData(
@@ -216,7 +232,7 @@ export function DayBookPage() {
                   </TableRow>
                 )}
                 {invoices.map((inv) => (
-                  <TableRow key={inv.id}>
+                  <TableRow key={inv.id} className={inv.cancelled ? "opacity-60" : undefined}>
                     <TableCell className="font-medium">{inv.invoiceNo}</TableCell>
                     <TableCell>{custName.get(inv.customerId) ?? "—"}</TableCell>
                     <TableCell className="text-right tabular">
@@ -247,11 +263,13 @@ export function DayBookPage() {
                         variant="ghost"
                         size="icon"
                         className="size-7"
-                        title="Edit / modify this bill"
+                        title="Edit / modify this bill; previous days require a reason"
+                        disabled={inv.cancelled}
                         onClick={() => void editInvoice(inv.id!)}
                       >
                         <Pencil className="size-4" />
                       </Button>
+                      {!inv.cancelled && <Button variant="ghost" size="icon" className="size-7 text-destructive" title="Cancel invoice (reason required)" onClick={() => void cancelInvoice(inv.id!)}><XCircle className="size-4" /></Button>}
                     </TableCell>
                   </TableRow>
                 ))}

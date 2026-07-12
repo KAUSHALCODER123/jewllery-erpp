@@ -3,7 +3,7 @@ import { useLiveData } from "@/db/useLiveData"
 import { Plus, Search, Pencil, Trash2, Users, MoreHorizontal, FileSpreadsheet } from "lucide-react"
 import { toast } from "sonner"
 import type { Customer } from "@/db/types"
-import { customersService, salesService } from "@/services/dbService"
+import { customersService, salesService, receiptsService } from "@/services/dbService"
 import { seedCustomersIfEmpty } from "@/db/seed"
 import { formatAmount } from "@/lib/format"
 import { exportObjectsToExcel } from "@/lib/excel"
@@ -26,23 +26,31 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { CustomerFormDialog } from "./CustomerFormDialog"
+import { useSession } from "@/stores/useSession"
 
 export function CustomersPage() {
+  const user = useSession((s) => s.user)
   const [search, setSearch] = useState("")
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null)
 
   const customers = useLiveData(() => customersService.getAll(), [], undefined)
   const invoices = useLiveData(() => salesService.getInvoices(), [], [])
+  const receipts = useLiveData(() => receiptsService.getAll(), [], [])
 
-  // Outstanding (Udhari) = opening balance + sum of unpaid invoice balances.
+  // Outstanding (Udhari) = opening balance + unpaid invoice balances − standalone
+  // Udhari collections. Kept in step with customersService.getOutstanding so the
+  // list and any per-customer lookups agree.
   const outstandingByCustomer = useMemo(() => {
     const map = new Map<number, number>()
     for (const inv of invoices) {
       map.set(inv.customerId, (map.get(inv.customerId) ?? 0) + inv.balance)
     }
+    for (const r of receipts) {
+      map.set(r.customerId, (map.get(r.customerId) ?? 0) - r.amount)
+    }
     return map
-  }, [invoices])
+  }, [invoices, receipts])
 
   const filtered = useMemo(() => {
     if (!customers) return []
@@ -67,8 +75,10 @@ export function CustomersPage() {
 
   const handleDelete = async (c: Customer) => {
     if (!c.id) return
-    if (!confirm(`Delete customer ${c.name}?`)) return
-    await customersService.remove(c.id)
+    if (user?.role !== "owner") return toast.error("Permanent deletion is reserved for the Owner")
+    const reason = window.prompt(`Reason to permanently delete ${c.name}:`)?.trim()
+    if (!reason || !confirm(`Permanently delete customer ${c.name}?`)) return
+    await customersService.remove(c.id, { user: user.name, role: user.role, reason })
     toast.success(`Deleted ${c.name}`)
   }
 

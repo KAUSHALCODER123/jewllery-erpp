@@ -26,6 +26,9 @@ const PurchasePage = lazy(() => named(import("@/features/purchase/PurchasePage")
 const SchemesPage = lazy(() => named(import("@/features/schemes/SchemesPage"), "SchemesPage"))
 const ReportsPage = lazy(() => named(import("@/features/reports/ReportsPage"), "ReportsPage"))
 const ReceiptPage = lazy(() => named(import("@/features/receipt/ReceiptPage"), "ReceiptPage"))
+const SalesReturnsPage = lazy(() => named(import("@/features/sales-returns/SalesReturnsPage"), "SalesReturnsPage"))
+const OperationsPage = lazy(() => named(import("@/features/operations/OperationsPage"), "OperationsPage"))
+const RepairsPage=lazy(()=>named(import("@/features/repairs/RepairsPage"),"RepairsPage"))
 const StockAuditPage = lazy(() => named(import("@/features/audit/StockAuditPage"), "StockAuditPage"))
 const RefiningPage = lazy(() => named(import("@/features/refining/RefiningPage"), "RefiningPage"))
 const SettingsPage = lazy(() => named(import("@/features/settings/SettingsPage"), "SettingsPage"))
@@ -79,6 +82,9 @@ function App() {
               <Route path="audit" element={<StockAuditPage />} />
               <Route path="customers" element={<CustomersPage />} />
               <Route path="receipt" element={<ReceiptPage />} />
+              <Route path="sales-returns" element={<SalesReturnsPage />} />
+              <Route path="operations" element={<OperationsPage />} />
+              <Route path="repairs" element={<RepairsPage />} />
               <Route path="purchase" element={<PurchasePage />} />
               <Route path="refining" element={<RefiningPage />} />
               <Route path="schemes" element={<SchemesPage />} />

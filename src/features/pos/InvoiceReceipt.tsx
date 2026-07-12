@@ -241,6 +241,7 @@ export function InvoiceReceipt({
           ) : null}
           <Line label={t("cash")} value={invoice.cashPaid} />
           <Line label="UPI" value={invoice.upiPaid} />
+          {(invoice.paymentDetails ?? []).filter((p) => p.amount > 0).map((p) => <Line key={p.mode} label={`${p.mode.toUpperCase()}${p.reference ? ` (${p.reference})` : ""}`} value={p.amount} />)}
           <div className="flex justify-between font-semibold border-t border-dashed pt-0.5 mt-0.5">
             <span>{t("balance")}</span>
             <span className="tabular">{formatAmount(invoice.balance)}</span>
@@ -327,7 +328,9 @@ export function InvoiceReceipt({
                 key={block.id}
                 className={cn(
                   alignClass(block.align),
-                  (block.type === "text" || block.type === "footer") && fontSizeClass(block.fontSize),
+                  block.fontSize && (block.type === "text" || block.type === "footer")
+                    ? fontSizeClass(block.fontSize)
+                    : undefined,
                   block.bold && "font-bold",
                 )}
               >

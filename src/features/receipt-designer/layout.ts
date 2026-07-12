@@ -121,18 +121,29 @@ export function serializeReceiptLayout(layout: ReceiptLayout): string {
   return JSON.stringify(layout)
 }
 
-/** Tailwind text-size class for a block's font-size option. */
+/**
+ * Tailwind text-size classes for a block's font-size option.
+ *
+ * The block's inner elements (the footer's `<p>`, the custom-text `<p>`, …)
+ * carry their own hardcoded sizes, so a plain `text-[Npx]` on the wrapper is
+ * overridden and nothing visibly changes. We therefore also emit an
+ * `[&_*]:!text-[Npx]` variant that forces the size onto every descendant with
+ * `!important`, so choosing XS/S/M/L actually re-sizes the printed text.
+ *
+ * The classes are spelled out as literals (not built from a template) so
+ * Tailwind's JIT scanner can see and generate them.
+ */
 export function fontSizeClass(size?: ReceiptFontSize): string {
   switch (size) {
     case "xs":
-      return "text-[10px]"
+      return "text-[10px] [&_*]:!text-[10px]"
     case "sm":
-      return "text-[11px]"
+      return "text-[11px] [&_*]:!text-[11px]"
     case "lg":
-      return "text-[15px]"
+      return "text-[15px] [&_*]:!text-[15px]"
     case "base":
     default:
-      return "text-[13px]"
+      return "text-[13px] [&_*]:!text-[13px]"
   }
 }
 

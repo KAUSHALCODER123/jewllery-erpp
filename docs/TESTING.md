@@ -22,7 +22,12 @@ e2e/
     pos.spec.ts          billing screen smoke (tabs, checkout, save gating)
     pos-sale.spec.ts     end-to-end sale: grid → walk-in customer → cash → print
     girvi.spec.ts        create a gold loan and see it in the open-loans list
+    purchase-stock.spec  a ticked purchase line mints a tagged stock item (unticked doesn't)
+    error-boundary.spec  a failed lazy-chunk load shows the recovery panel, not a white screen
 ```
+
+For the human-driven release checklist that walks every module by hand (and the
+production-readiness assessment), see [MANUAL-TEST.md](./MANUAL-TEST.md).
 
 ## Running
 

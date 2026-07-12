@@ -317,24 +317,26 @@ function BlockRow({
             ))}
           </div>
 
-          <div className="flex overflow-hidden rounded-md border">
-            {FONT_SIZES.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => onPatch({ fontSize: f.value })}
-                className={cn(
-                  "flex h-7 w-6 items-center justify-center text-[10px] font-medium transition-colors",
-                  (block.fontSize ?? "base") === f.value
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground hover:bg-accent",
-                )}
-                title={`Font size ${f.label}`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          {(block.type === "text" || block.type === "footer") && (
+            <div className="flex overflow-hidden rounded-md border">
+              {FONT_SIZES.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => onPatch({ fontSize: f.value })}
+                  className={cn(
+                    "flex h-7 w-6 items-center justify-center text-[10px] font-medium transition-colors",
+                    (block.fontSize ?? "base") === f.value
+                      ? "bg-primary/15 text-primary"
+                      : "text-muted-foreground hover:bg-accent",
+                  )}
+                  title={`Font size ${f.label}`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           <button
             type="button"
@@ -564,7 +566,9 @@ function ReceiptPreview({
               key={block.id}
               className={cn(
                 alignClass(block.align),
-                (block.type === "text" || block.type === "footer") && fontSizeClass(block.fontSize),
+                block.fontSize && (block.type === "text" || block.type === "footer")
+                  ? fontSizeClass(block.fontSize)
+                  : undefined,
                 block.bold && "font-bold",
               )}
             >

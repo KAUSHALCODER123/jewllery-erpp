@@ -64,6 +64,7 @@ export function ItemFormDialog({
   editItem?: Item | null
 }) {
   const company = useSession((s) => s.company)
+  const user = useSession((s) => s.user)
   const defaultHsn = company?.defaultHsnCode || "7113"
 
   const form = useForm<ItemFormValues>({
@@ -125,6 +126,8 @@ export function ItemFormDialog({
   const onSubmit = async (values: ItemFormValues) => {
     try {
       if (editItem?.id) {
+        const reason = window.prompt("Reason for this stock/item adjustment:")?.trim()
+        if (!reason) return toast.error("A reason is required for stock adjustments")
         await itemsService.update(editItem.id, {
           name: values.name,
           type: values.type,
@@ -137,7 +140,7 @@ export function ItemFormDialog({
           huid: values.huid || undefined,
           hsn: values.hsn || undefined,
           tag: values.tag || editItem.tag,
-        })
+        }, { user: user?.name, role: user?.role, reason })
         toast.success(`Updated ${values.name}`)
       } else {
         const cat = categoryByLabel(values.category)

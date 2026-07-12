@@ -27,6 +27,7 @@ import {
   urdNetWt,
 } from "./calc"
 import type { PrintPayload } from "./InvoiceReceipt"
+import { discountDecision } from "@/lib/permissions"
 
 export function CheckoutPane({
   onSaved,
@@ -35,6 +36,7 @@ export function CheckoutPane({
 }) {
   const store = usePosStore()
   const company = useSession((s) => s.company)
+  const user = useSession((s) => s.user)
   const rupeesPerPoint = company?.loyaltyRupeesPerPoint ?? 1
   const earnPerGram = company?.loyaltyEarnPerGram ?? 1
   const {
@@ -44,6 +46,7 @@ export function CheckoutPane({
     gstRate,
     cashPaid,
     upiPaid,
+    otherPayments,
     billDiscount,
     makingDiscount,
     tcsPct,
@@ -53,6 +56,7 @@ export function CheckoutPane({
     setGstRate,
     setCashPaid,
     setUpiPaid,
+    setOtherPayment,
     setBillDiscount,
     setMakingDiscount,
     setTcsPct,
@@ -87,8 +91,9 @@ export function CheckoutPane({
         tcsPct,
         interState,
         advanceApplied: store.advanceApplied,
+        otherPayments: otherPayments.reduce((s, p) => s + p.amount, 0),
       }),
-    [sales, urd, gstRate, cashPaid, upiPaid, billDiscount, makingDiscount, loyaltyDiscount, tcsPct, interState, store.advanceApplied],
+    [sales, urd, gstRate, cashPaid, upiPaid, otherPayments, billDiscount, makingDiscount, loyaltyDiscount, tcsPct, interState, store.advanceApplied],
   )
 
   // Points earned this sale, capped so the customer's balance never exceeds the
@@ -127,8 +132,17 @@ export function CheckoutPane({
       toast.error("Add at least one item to the bill")
       return
     }
+    const discountTotal = totals.billDiscount + totals.makingDiscount + totals.loyaltyDiscount
+    const decision = discountDecision(user?.role, discountTotal, { directLimit: company?.discountDirectLimit ?? 500, reasonLimit: company?.discountReasonLimit ?? 2000 })
+    if (decision === "manager") return toast.error("This very high discount requires a Manager or Owner to save the bill")
+    let discountReason: string | undefined
+    if (decision === "reason") {
+      discountReason = window.prompt(`Reason for ₹${formatAmount(discountTotal)} discount:`)?.trim()
+      if (!discountReason) return toast.error("A reason is required for this discount")
+    }
 
     const draft: SaleDraft = {
+      audit: { user: store.editUser ?? user?.name, reason: [store.editingInvoiceId ? (store.editReason ?? "Same-day correction") : undefined, discountReason ? `Discount: ${discountReason}` : undefined].filter(Boolean).join("; ") || undefined },
       invoice: {
         customerId,
         date: todayStr(),
@@ -149,6 +163,7 @@ export function CheckoutPane({
         netAmount: totals.netAmount,
         cashPaid,
         upiPaid,
+        paymentDetails: otherPayments.filter((p) => p.amount > 0),
         balance: totals.balance,
         notes: store.notes || undefined,
         orderId: store.orderId || undefined,
@@ -210,6 +225,13 @@ export function CheckoutPane({
             placeholder="optional"
             className="h-8"
           />
+          {(["card", "bank", "cheque"] as const).map((mode) => {
+            const payment = otherPayments.find((p) => p.mode === mode)
+            return <div key={mode} className="grid grid-cols-2 gap-1">
+              <div><Label className="text-xs capitalize text-muted-foreground">{mode} Received</Label><Input type="number" className="tabular text-right" value={payment?.amount || ""} onChange={(e) => setOtherPayment(mode, e.target.value === "" ? 0 : Math.max(0, e.target.valueAsNumber || 0), payment?.reference)} /></div>
+              <div><Label className="text-xs text-muted-foreground">Reference</Label><Input placeholder={mode === "cheque" ? "Cheque no." : "RRN / txn ID"} value={payment?.reference ?? ""} onChange={(e) => setOtherPayment(mode, payment?.amount ?? 0, e.target.value)} /></div>
+            </div>
+          })}
         </div>
 
         {/* Discounts */}
@@ -385,7 +407,7 @@ export function CheckoutPane({
             <button
               className="text-[11px] text-primary hover:underline"
               onClick={() => {
-                setCashPaid(Math.max(0, totals.netAmount - upiPaid - store.advanceApplied))
+                setCashPaid(Math.max(0, totals.netAmount - upiPaid - otherPayments.reduce((s, p) => s + p.amount, 0) - store.advanceApplied))
               }}
             >
               full

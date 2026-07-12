@@ -20,6 +20,8 @@ import { systemDb, type Company, type User } from "@/db/systemDb"
 import { isTauri, systemExecutor } from "@/db/sqlite"
 import { makeSqliteServices } from "@/services/sqliteServices"
 import { SQLITE_CUTOVER_ENABLED } from "@/db/persistence"
+import { assertAllowed } from "@/lib/permissions"
+import type { UserRole } from "@/db/systemDb"
 import type {
   Counter,
   Customer,
@@ -43,6 +45,16 @@ import type {
   Refiner,
   SalesInvoice,
   SalesItem,
+  SalesReturn,
+  SalesReturnItem,
+  ReturnDisposition,
+  AuditEntry,
+  DailyMetalRate,
+  CashVoucher,
+  DayClosing,
+  RepairJob,
+  RepairHistory,
+  RepairStatus,
   Scheme,
   SchemeAccount,
   SchemePayment,
@@ -154,7 +166,8 @@ const itemsServiceDexie = {
     return { ...record, id }
   },
 
-  async update(id: number, patch: Partial<Item>): Promise<void> {
+  async update(id: number, patch: Partial<Item>, context?: { user?: string; role?: UserRole; reason?: string }): Promise<void> {
+    const before = context ? await db.items.get(id) : undefined
     const next: Partial<Item> = { ...patch, updatedAt: nowIso() }
     if (patch.grossWt != null || patch.stoneWt != null) {
       const existing = await db.items.get(id)
@@ -166,9 +179,11 @@ const itemsServiceDexie = {
       }
     }
     await db.items.update(id, next)
+    if(context&&before&&next.netWt!=null&&next.netWt!==before.netWt)await db.inventory_ledger.add({itemId:id,date:todayStr(),movement:next.netWt>before.netWt?"in":"out",weight:Math.abs(next.netWt-before.netWt),refType:"stock_adjustment",refId:id,refNo:before.tag,description:context.reason,createdBy:context.user,createdAt:nowIso()})
+    if (context) await auditServiceDexie.add({ user: context.user, action: "stock_adjustment", entity: "item", entityId: id, reason: context.reason, beforeJson: JSON.stringify(before), afterJson: JSON.stringify(await db.items.get(id)) })
   },
 
-  remove: (id: number): Promise<void> => db.items.delete(id),
+  async remove(id: number, actor?: { user?: string; role?: UserRole; reason?: string }): Promise<void> { assertAllowed(actor?.role, "permanent_delete"); const before=await db.items.get(id); await db.items.delete(id); await auditServiceDexie.add({user:actor?.user,action:"permanent_delete",entity:"item",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)}) },
 
   /** Case-insensitive search over tag / name / huid. */
   async search(term: string): Promise<Item[]> {
@@ -210,7 +225,7 @@ const customersServiceDexie = {
   update: (id: number, patch: Partial<Customer>): Promise<void> =>
     db.customers.update(id, { ...patch, updatedAt: nowIso() }).then(() => undefined),
 
-  remove: (id: number): Promise<void> => db.customers.delete(id),
+  async remove(id: number, actor?: { user?: string; role?: UserRole; reason?: string }): Promise<void> { assertAllowed(actor?.role,"permanent_delete"); const before=await db.customers.get(id); await db.customers.delete(id); await auditServiceDexie.add({user:actor?.user,action:"permanent_delete",entity:"customer",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)}) },
 
   async search(term: string): Promise<Customer[]> {
     const q = term.trim().toLowerCase()
@@ -233,14 +248,16 @@ const customersServiceDexie = {
       .where("customerId")
       .equals(customerId)
       .toArray()
-    const invoiceBalance = invoices.reduce((sum, inv) => sum + inv.balance, 0)
+    const invoiceBalance = invoices.filter((x) => !x.cancelled).reduce((sum, inv) => sum + inv.balance, 0)
     const receipts = await db.receipts
       .where("customerId")
       .equals(customerId)
       .toArray()
     const collected = receipts.reduce((sum, r) => sum + r.amount, 0)
+    const returns = await db.sales_returns.where("customerId").equals(customerId).toArray()
+    const returnCredit = returns.reduce((sum, r) => sum + r.totalAmount - r.refundAmount, 0)
     return Number(
-      (customer.openingBalance + invoiceBalance - collected).toFixed(2),
+      (customer.openingBalance + invoiceBalance - collected - returnCredit).toFixed(2),
     )
   },
 }
@@ -277,6 +294,128 @@ export interface SaleDraft {
   invoice: Omit<SalesInvoice, "id" | "invoiceNo" | "createdAt">
   items: Omit<SalesItem, "id" | "invoiceId">[]
   urd: Omit<UrdItem, "id" | "invoiceId">[]
+  audit?: { user?: string; reason?: string }
+}
+
+export interface SalesReturnDraft {
+  invoiceId: number
+  date: string
+  reason: string
+  refundMode?: PaymentMode
+  refundAmount: number
+  notes?: string
+  createdBy?: string
+  items: Array<{
+    salesItemId: number
+    netWt: number
+    disposition: ReturnDisposition
+  }>
+}
+
+const auditServiceDexie = {
+  getAll: (): Promise<AuditEntry[]> => db.audit_log.orderBy("id").reverse().toArray(),
+  add: (entry: Omit<AuditEntry, "id" | "createdAt">): Promise<number> =>
+    db.audit_log.add({ ...entry, createdAt: nowIso() }),
+}
+export interface MetalStockRow{metal:string;purity:string;location:string;weight:number;fineWeight:number}
+const round3=(n:number)=>Number(n.toFixed(3))
+const pct=(p:string)=>{const m=p.match(/\((\d{3})\)/)||p.match(/(\d{3})/);if(m)return Number(m[1])/1000;const k=p.match(/(\d{1,2})K/i);return k?Number(k[1])/24:1}
+const metalStockServiceDexie={async summary():Promise<MetalStockRow[]>{const [items,jobs,urd]=await Promise.all([db.items.toArray(),db.karigar_jobs.toArray(),db.urd_items.toArray()]);const map=new Map<string,MetalStockRow>();const add=(metal:string,purity:string,location:string,w:number)=>{const key=`${metal}|${purity}|${location}`,x=map.get(key)??{metal,purity,location,weight:0,fineWeight:0};x.weight=round3(x.weight+w);x.fineWeight=round3(x.fineWeight+w*pct(purity));map.set(key,x)};for(const i of items)if((i.status??"in_stock")!=="sold"&&i.status!=="melted")add(i.type,i.purity,i.status==="with_karigar"?"With karigar":"Shop stock",i.netWt);for(const j of jobs.filter(x=>x.status==="issued"))add("gold","Unspecified","With karigar",j.metalIssuedWt);for(const u of urd)add(u.type,u.purity||"Untested","URD awaiting refining",u.netWt);return[...map.values()].sort((a,b)=>`${a.metal}${a.purity}${a.location}`.localeCompare(`${b.metal}${b.purity}${b.location}`))}}
+
+const operationsServiceDexie = {
+  getRates: (date?: string): Promise<DailyMetalRate[]> => date ? db.daily_metal_rates.where("date").equals(date).reverse().sortBy("effectiveAt") : db.daily_metal_rates.orderBy("id").reverse().toArray(),
+  getLatestRate: (): Promise<DailyMetalRate | undefined> => db.daily_metal_rates.orderBy("effectiveAt").last(),
+  async addRate(input: Omit<DailyMetalRate, "id" | "effectiveAt" | "createdAt">): Promise<DailyMetalRate> {
+    if ([input.gold24k, input.gold22k, input.gold18k, input.silver, input.oldGoldBuy22k].some((x) => x < 0)) throw new Error("Rates cannot be negative")
+    const record = { ...input, effectiveAt: nowIso(), createdAt: nowIso() }
+    const id = await db.daily_metal_rates.add(record)
+    await auditServiceDexie.add({ user: input.createdBy, action: "set_metal_rates", entity: "daily_metal_rate", entityId: id, afterJson: JSON.stringify(record) })
+    return { ...record, id }
+  },
+  getVouchers: (date?: string): Promise<CashVoucher[]> => date ? db.cash_vouchers.where("date").equals(date).toArray() : db.cash_vouchers.orderBy("id").reverse().toArray(),
+  async addVoucher(input: Omit<CashVoucher, "id" | "voucherNo" | "createdAt">): Promise<CashVoucher> {
+    if (!(input.amount > 0)) throw new Error("Amount must be greater than zero")
+    return db.transaction("rw", [db.cash_vouchers, db.counters, db.audit_log], async () => {
+      const { code: voucherNo } = await nextSequence(input.kind === "payment" ? "payment_voucher" : "receipt_voucher", { prefix: input.kind === "payment" ? "PV" : "RV" })
+      const record = { ...input, voucherNo, createdAt: nowIso() }
+      const id = await db.cash_vouchers.add(record)
+      await db.audit_log.add({ createdAt: nowIso(), user: input.createdBy, action: `create_${input.kind}_voucher`, entity: "cash_voucher", entityId: id, afterJson: JSON.stringify(record) })
+      return { ...record, id }
+    })
+  },
+  getClosing: (date: string): Promise<DayClosing | undefined> => db.day_closings.where("date").equals(date).first(),
+  async closeDay(input: { date: string; openingCash: number; physicalCash: number; notes?: string; closedBy?: string }): Promise<DayClosing> {
+    const existing = await db.day_closings.where("date").equals(input.date).first()
+    if (existing) throw new Error("This day is already closed")
+    const [invoices, receipts, vouchers, purchases, loans, loanPayments] = await Promise.all([
+      db.sales_invoices.where("date").equals(input.date).toArray(), db.receipts.where("date").equals(input.date).toArray(), db.cash_vouchers.where("date").equals(input.date).toArray(), db.purchase_invoices.where("date").equals(input.date).toArray(), db.loans.toArray(), db.loan_payments.where("date").equals(input.date).toArray(),
+    ])
+    const salesCash = invoices.reduce((s, x) => s + x.cashPaid, 0)
+    const receiptCash = receipts.filter((x) => x.mode === "cash").reduce((s, x) => s + x.amount, 0)
+    const voucherCash = vouchers.filter((x) => x.mode === "cash").reduce((s, x) => s + (x.kind === "receipt" ? x.amount : -x.amount), 0)
+    const purchaseCash = purchases.filter((x) => (x.paymentMode ?? "cash") === "cash").reduce((s, x) => s + x.amountPaid, 0)
+    const loanOut = loans.filter((x) => x.date === input.date).reduce((s, x) => s + x.loanAmount, 0)
+    const loanIn = loanPayments.reduce((s, x) => s + x.amount, 0)
+    const expectedCash = round(input.openingCash + salesCash + receiptCash + voucherCash + loanIn - purchaseCash - loanOut)
+    const record: DayClosing = { ...input, expectedCash, difference: round(input.physicalCash - expectedCash), closedAt: nowIso() }
+    const id = await db.day_closings.add(record)
+    await auditServiceDexie.add({ user: input.closedBy, action: "close_day", entity: "day_closing", entityId: id, afterJson: JSON.stringify(record) })
+    return { ...record, id }
+  },
+}
+
+const repairsServiceDexie={
+ getAll:():Promise<RepairJob[]>=>db.repairs.orderBy("id").reverse().toArray(),
+ getHistory:(repairId:number):Promise<RepairHistory[]>=>db.repair_history.where("repairId").equals(repairId).sortBy("at"),
+ async add(input:Omit<RepairJob,"id"|"repairNo"|"status"|"createdAt"|"updatedAt">):Promise<RepairJob>{return db.transaction("rw",[db.repairs,db.repair_history,db.counters,db.audit_log],async()=>{const{code:repairNo}=await nextSequence("repair",{prefix:"REP"});const now=nowIso();const record:RepairJob={...input,repairNo,status:"received",createdAt:now,updatedAt:now};const id=await db.repairs.add(record);await db.repair_history.add({repairId:id,status:"received",at:now,by:input.createdBy});await db.audit_log.add({createdAt:now,user:input.createdBy,action:"repair_intake",entity:"repair",entityId:id,afterJson:JSON.stringify(record)});return{...record,id}})},
+ async setStatus(id:number,status:RepairStatus,context:{user?:string;reason?:string;finalAmount?:number}):Promise<void>{return db.transaction("rw",[db.repairs,db.repair_history,db.audit_log],async()=>{const before=await db.repairs.get(id);if(!before)throw new Error("Repair not found");if(before.status==="delivered")throw new Error("Delivered repair cannot be changed");const now=nowIso();const patch:Partial<RepairJob>={status,updatedBy:context.user,updatedAt:now,...(context.finalAmount!=null?{finalAmount:context.finalAmount}:{}),...(status==="delivered"?{deliveredDate:todayStr()}: {})};await db.repairs.update(id,patch);await db.repair_history.add({repairId:id,status,at:now,by:context.user,reason:context.reason});await db.audit_log.add({createdAt:now,user:context.user,action:"repair_status",entity:"repair",entityId:id,reason:context.reason,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})})}
+}
+
+const salesReturnsServiceDexie = {
+  getAll: (): Promise<SalesReturn[]> => db.sales_returns.orderBy("id").reverse().toArray(),
+  getByInvoice: (invoiceId: number): Promise<SalesReturn[]> =>
+    db.sales_returns.where("invoiceId").equals(invoiceId).toArray(),
+  async create(input: SalesReturnDraft): Promise<SalesReturn> {
+    return db.transaction("rw", [db.sales_returns, db.sales_return_items, db.sales_invoices, db.sales_items, db.items, db.inventory_ledger, db.audit_log, db.counters], async () => {
+      const invoice = await db.sales_invoices.get(input.invoiceId)
+      if (!invoice) throw new Error("Invoice not found")
+      if (!input.items.length) throw new Error("Select at least one item")
+      const original = await db.sales_items.where("invoiceId").equals(input.invoiceId).toArray()
+      const previous = await db.sales_returns.where("invoiceId").equals(input.invoiceId).toArray()
+      const previousLines = (await Promise.all(previous.map((r) => db.sales_return_items.where("returnId").equals(r.id!).toArray()))).flat()
+      const selected: SalesReturnItem[] = []
+      let lineGross = 0
+      for (const row of input.items) {
+        const source = original.find((x) => x.id === row.salesItemId)
+        if (!source) throw new Error("An invoice item no longer exists")
+        if (previousLines.some((x) => x.salesItemId === source.id)) throw new Error(`${source.description} was already returned`)
+        const ratio = source.netWt > 0 ? Math.min(1, row.netWt / source.netWt) : 1
+        const amount = round(source.finalAmount * ratio)
+        lineGross = round(lineGross + amount)
+        selected.push({ returnId: 0, salesItemId: source.id!, itemId: source.itemId, description: source.description, netWt: row.netWt, taxableAmount: amount, disposition: row.disposition })
+      }
+      const grossBase = invoice.totalGrossAmount || 1
+      const taxableAmount = round(lineGross / grossBase * invoice.taxableAmount)
+      const cgst = round(lineGross / grossBase * invoice.cgst)
+      const sgst = round(lineGross / grossBase * invoice.sgst)
+      const igst = round(lineGross / grossBase * (invoice.igst ?? 0))
+      const totalAmount = round(taxableAmount + cgst + sgst + igst)
+      if (input.refundAmount < 0 || input.refundAmount > totalAmount) throw new Error("Refund cannot exceed credit-note total")
+      const { code: returnNo } = await nextSequence("sales_return", { prefix: "CRN" })
+      const record: SalesReturn = { returnNo, invoiceId: invoice.id!, customerId: invoice.customerId, date: input.date, reason: input.reason, taxableAmount, cgst, sgst, igst, totalAmount, refundMode: input.refundMode, refundAmount: input.refundAmount, customerCredit: round(totalAmount - input.refundAmount), notes: input.notes, createdBy: input.createdBy, createdAt: nowIso() }
+      const returnId = await db.sales_returns.add(record)
+      await db.sales_return_items.bulkAdd(selected.map((x) => ({ ...x, returnId })))
+      for (const row of selected) {
+        if (row.itemId) {
+          const status = row.disposition === "restock" ? "in_stock" : row.disposition === "melt" || row.disposition === "scrap" ? "melted" : "with_karigar"
+          await db.items.update(row.itemId, { status, updatedAt: nowIso() })
+          await db.inventory_ledger.add({ itemId: row.itemId, date: input.date, movement: "in", weight: row.netWt, refType: "sales_return", refId: returnId, refNo: returnNo, description: `Sales return — ${row.description}`, createdAt: nowIso() })
+        }
+      }
+      await db.audit_log.add({ createdAt: nowIso(), user: input.createdBy, action: "create_credit_note", entity: "sales_return", entityId: returnId, reason: input.reason, afterJson: JSON.stringify(record) })
+      return { ...record, id: returnId }
+    })
+  },
 }
 
 const salesServiceDexie = {
@@ -302,7 +441,7 @@ const salesServiceDexie = {
   async createInvoice(draft: SaleDraft): Promise<SalesInvoice> {
     return db.transaction(
       "rw",
-      [db.sales_invoices, db.sales_items, db.urd_items, db.items, db.counters, db.customers, db.orders],
+      [db.sales_invoices, db.sales_items, db.urd_items, db.items, db.counters, db.customers, db.orders, db.audit_log, db.inventory_ledger],
       async () => {
         const { code: invoiceNo } = await nextSequence("invoice", { prefix: "INV" })
         const header: SalesInvoice = {
@@ -322,8 +461,9 @@ const salesServiceDexie = {
         }
         // Mark any tagged stock as sold.
         for (const li of draft.items) {
-          if (li.itemId) await db.items.update(li.itemId, { status: "sold" })
+          if (li.itemId) { await db.items.update(li.itemId, { status: "sold" }); await db.inventory_ledger.add({itemId:li.itemId,date:header.date,movement:"out",weight:li.netWt,refType:"sale",refId:invoiceId,refNo:invoiceNo,description:li.description,createdAt:nowIso()}) }
         }
+        for(const u of draft.urd)await db.inventory_ledger.add({date:header.date,movement:"in",weight:u.netWt,refType:"urd",refId:invoiceId,refNo:invoiceNo,description:u.description,createdAt:nowIso()})
         // Apply loyalty points (earned − redeemed) to the customer.
         const delta = (header.pointsEarned ?? 0) - (header.pointsRedeemed ?? 0)
         if (delta !== 0) {
@@ -341,6 +481,7 @@ const salesServiceDexie = {
             invoiceId,
           })
         }
+        if (draft.audit?.reason) await db.audit_log.add({ createdAt: nowIso(), user: draft.audit.user, action: "discount_override", entity: "sales_invoice", entityId: invoiceId, reason: draft.audit.reason, afterJson: JSON.stringify(header) })
         return { ...header, id: invoiceId }
       },
     )
@@ -369,7 +510,7 @@ const salesServiceDexie = {
   async updateInvoice(id: number, draft: SaleDraft): Promise<SalesInvoice> {
     return db.transaction(
       "rw",
-      [db.sales_invoices, db.sales_items, db.urd_items, db.items],
+      [db.sales_invoices, db.sales_items, db.urd_items, db.items, db.audit_log],
       async () => {
         const existing = await db.sales_invoices.get(id)
         if (!existing) throw new Error("Invoice not found")
@@ -394,9 +535,20 @@ const salesServiceDexie = {
         for (const li of draft.items) {
           if (li.itemId) await db.items.update(li.itemId, { status: "sold" })
         }
+        await db.audit_log.add({ createdAt: nowIso(), user: draft.audit?.user, action: "edit_invoice", entity: "sales_invoice", entityId: id, reason: draft.audit?.reason, beforeJson: JSON.stringify(existing), afterJson: JSON.stringify(await db.sales_invoices.get(id)) })
         return (await db.sales_invoices.get(id))!
       },
     )
+  },
+  async cancelInvoice(id: number, context: { user?: string; reason: string }): Promise<void> {
+    if (!context.reason.trim()) throw new Error("A cancellation reason is required")
+    await db.transaction("rw", [db.sales_invoices, db.sales_items, db.items, db.customers, db.audit_log,db.inventory_ledger], async () => {
+      const before=await db.sales_invoices.get(id); if(!before)throw new Error("Invoice not found"); if(before.cancelled)throw new Error("Invoice is already cancelled")
+      const lines=await db.sales_items.where("invoiceId").equals(id).toArray(); for(const x of lines)if(x.itemId){await db.items.update(x.itemId,{status:"in_stock",updatedAt:nowIso()});await db.inventory_ledger.add({itemId:x.itemId,date:todayStr(),movement:"in",weight:x.netWt,refType:"invoice_cancel",refId:id,refNo:before.invoiceNo,description:x.description,createdAt:nowIso()})}
+      const delta=(before.pointsEarned??0)-(before.pointsRedeemed??0); if(delta){const c=await db.customers.get(before.customerId);if(c)await db.customers.update(c.id!,{loyaltyPoints:Math.max(0,c.loyaltyPoints-delta)})}
+      const patch={cancelled:true,cancelReason:context.reason,cancelledAt:nowIso(),cancelledBy:context.user,balance:0}; await db.sales_invoices.update(id,patch)
+      await db.audit_log.add({createdAt:nowIso(),user:context.user,action:"cancel_invoice",entity:"sales_invoice",entityId:id,reason:context.reason,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})
+    })
   },
 }
 
@@ -550,7 +702,7 @@ const karigarsServiceDexie = {
       "id" | "jobNo" | "status" | "finishedWt" | "createdAt"
     >,
   ): Promise<KarigarJob> {
-    return db.transaction("rw", [db.karigar_jobs, db.karigars, db.counters], async () => {
+    return db.transaction("rw", [db.karigar_jobs, db.karigars, db.counters,db.inventory_ledger], async () => {
       const { code: jobNo } = await nextSequence("karigar_job", { prefix: "JOB" })
       const record: KarigarJob = {
         ...input,
@@ -560,6 +712,7 @@ const karigarsServiceDexie = {
         createdAt: nowIso(),
       }
       const id = await db.karigar_jobs.add(record)
+      await db.inventory_ledger.add({date:input.issuedDate,movement:"out",weight:input.metalIssuedWt,refType:"karigar_issue",refId:id,refNo:jobNo,description:input.description,createdAt:nowIso()})
       const karigar = await db.karigars.get(input.karigarId)
       if (karigar) {
         await db.karigars.update(input.karigarId, {
@@ -581,7 +734,7 @@ const karigarsServiceDexie = {
     finishedWt: number,
     wastageAllowed: number,
   ): Promise<void> {
-    return db.transaction("rw", [db.karigar_jobs, db.karigars], async () => {
+    return db.transaction("rw", [db.karigar_jobs, db.karigars,db.inventory_ledger], async () => {
       const job = await db.karigar_jobs.get(jobId)
       if (!job) return
       const wastageWt = (job.metalIssuedWt * wastageAllowed) / 100
@@ -592,6 +745,7 @@ const karigarsServiceDexie = {
         status: "received",
         receivedDate: todayStr(),
       })
+      await db.inventory_ledger.add({date:todayStr(),movement:"in",weight:finishedWt,refType:"karigar_receive",refId:jobId,refNo:job.jobNo,description:job.description,createdAt:nowIso()})
       const karigar = await db.karigars.get(job.karigarId)
       if (karigar) {
         await db.karigars.update(job.karigarId, {
@@ -621,7 +775,7 @@ export interface DayBookSummary {
 
 const reportsServiceDexie = {
   async getDayBook(date: string = todayStr()): Promise<DayBookSummary> {
-    const invoices = await db.sales_invoices.where("date").equals(date).toArray()
+    const invoices = (await db.sales_invoices.where("date").equals(date).toArray()).filter((x) => !x.cancelled)
     return {
       date,
       invoiceCount: invoices.length,
@@ -774,7 +928,7 @@ const purchaseServiceDexie = {
   async create(draft: PurchaseDraft): Promise<PurchaseInvoice> {
     return db.transaction(
       "rw",
-      [db.purchase_invoices, db.purchase_items, db.counters],
+      [db.purchase_invoices, db.purchase_items, db.counters,db.inventory_ledger],
       async () => {
         const { code: purchaseNo } = await nextSequence("purchase", { prefix: "PUR" })
         const header: PurchaseInvoice = {
@@ -786,6 +940,7 @@ const purchaseServiceDexie = {
         await db.purchase_items.bulkAdd(
           draft.items.map((li) => ({ ...li, purchaseId })),
         )
+        for(const li of draft.items)await db.inventory_ledger.add({date:header.date,movement:"in",weight:li.netWt,refType:"purchase",refId:purchaseId,refNo:purchaseNo,description:`${li.description} · ${li.purity}`,createdAt:nowIso()})
         return { ...header, id: purchaseId }
       },
     )
@@ -1047,7 +1202,7 @@ const refinersServiceDexie = {
   update: (id: number, patch: Partial<Refiner>): Promise<void> =>
     db.refiners.update(id, { ...patch, updatedAt: nowIso() }).then(() => undefined),
 
-  remove: (id: number): Promise<void> => db.refiners.delete(id),
+  async remove(id: number, actor?: { user?: string; role?: UserRole; reason?: string }): Promise<void> { assertAllowed(actor?.role,"permanent_delete"); const before=await db.refiners.get(id); await db.refiners.delete(id); await auditServiceDexie.add({user:actor?.user,action:"permanent_delete",entity:"refiner",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)}) },
 }
 
 /* ------------------------------------------------------------------ */
@@ -1306,11 +1461,12 @@ const ledgerServiceDexie = {
       .where("customerId")
       .equals(customerId)
       .toArray()
+    const returns = await db.sales_returns.where("customerId").equals(customerId).toArray()
 
     // Build a chronological event list, then run the balance forward.
     type Ev = Omit<LedgerEntry, "balance">
     const events: Ev[] = []
-    for (const inv of invoices) {
+    for (const inv of invoices.filter((x) => !x.cancelled)) {
       events.push({
         date: inv.date,
         ref: inv.invoiceNo,
@@ -1318,7 +1474,7 @@ const ledgerServiceDexie = {
         debit: inv.netAmount,
         credit: 0,
       })
-      const paid = round(inv.cashPaid + inv.upiPaid)
+      const paid = round(inv.cashPaid + inv.upiPaid + (inv.paymentDetails ?? []).reduce((s, p) => s + p.amount, 0))
       if (paid > 0) {
         events.push({
           date: inv.date,
@@ -1337,6 +1493,9 @@ const ledgerServiceDexie = {
         debit: 0,
         credit: r.amount,
       })
+    }
+    for (const r of returns) {
+      events.push({ date: r.date, ref: r.returnNo, particulars: `Sales return — ${r.reason}`, debit: r.refundAmount, credit: r.totalAmount })
     }
     events.sort((a, b) => a.date.localeCompare(b.date))
 
@@ -1369,7 +1528,7 @@ const ledgerServiceDexie = {
     const rows: CashBookRow[] = []
     const invoices = await db.sales_invoices.where("date").equals(date).toArray()
     for (const inv of invoices) {
-      const inflow = round(inv.cashPaid + inv.upiPaid)
+      const inflow = round(inv.cashPaid + inv.upiPaid + (inv.paymentDetails ?? []).reduce((s, p) => s + p.amount, 0))
       if (inflow > 0) {
         rows.push({
           date,
@@ -1435,6 +1594,8 @@ const ledgerServiceDexie = {
         })
       }
     }
+    const vouchers = await db.cash_vouchers.where("date").equals(date).toArray()
+    for (const v of vouchers) rows.push({ date, ref: v.voucherNo, particulars: `${v.category} (${v.mode})`, inflow: v.kind === "receipt" ? v.amount : 0, outflow: v.kind === "payment" ? v.amount : 0 })
     const totalIn = round(rows.reduce((s, r) => s + r.inflow, 0))
     const totalOut = round(rows.reduce((s, r) => s + r.outflow, 0))
     return { rows, totalIn, totalOut, net: round(totalIn - totalOut) }
@@ -1443,7 +1604,7 @@ const ledgerServiceDexie = {
   /** GSTR-1 rows for a month ("YYYY-MM"), classified B2B (has GSTIN) vs B2C. */
   async gstr1(month: string): Promise<Gstr1Row[]> {
     const invoices = (await db.sales_invoices.toArray()).filter((i) =>
-      i.date.startsWith(month),
+      i.date.startsWith(month) && !i.cancelled,
     )
     const customers = await db.customers.toArray()
     const cmap = new Map(customers.map((c) => [c.id!, c]))
@@ -1785,6 +1946,11 @@ const pick = <T>(dexie: T, sqliteSvc: unknown): T =>
 export const itemsService = pick(itemsServiceDexie, sqlite?.itemsService)
 export const customersService = pick(customersServiceDexie, sqlite?.customersService)
 export const salesService = pick(salesServiceDexie, sqlite?.salesService)
+export const salesReturnsService = pick(salesReturnsServiceDexie, sqlite?.salesReturnsService)
+export const auditService = pick(auditServiceDexie, sqlite?.auditService)
+export const operationsService = pick(operationsServiceDexie, sqlite?.operationsService)
+export const repairsService = pick(repairsServiceDexie, sqlite?.repairsService)
+export const metalStockService=pick(metalStockServiceDexie,sqlite?.metalStockService)
 export const loansService = pick(loansServiceDexie, sqlite?.loansService)
 export const karigarsService = pick(karigarsServiceDexie, sqlite?.karigarsService)
 export const ordersService = pick(ordersServiceDexie, sqlite?.ordersService)
@@ -1804,6 +1970,11 @@ export const dbService = {
   items: itemsService,
   customers: customersService,
   sales: salesService,
+  salesReturns: salesReturnsService,
+  audit: auditService,
+  operations: operationsService,
+  repairs: repairsService,
+  metalStock:metalStockService,
   loans: loansService,
   karigars: karigarsService,
   orders: ordersService,

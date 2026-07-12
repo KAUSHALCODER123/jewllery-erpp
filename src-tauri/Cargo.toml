@@ -17,7 +17,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 # SQLite persistence exposed to the frontend via the JS @tauri-apps/plugin-sql API.
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+# Vendored fork of tauri-plugin-sql 2.4.0 with a one-line change: the SQLite pool
+# is pinned to a single connection so cross-call BEGIN/COMMIT transactions hold
+# (see vendor/tauri-plugin-sql/src/wrapper.rs). The upstream multi-connection pool
+# breaks every money-sensitive multi-write path under the cutover.
+tauri-plugin-sql = { path = "vendor/tauri-plugin-sql", features = ["sqlite"] }
 # File-system write + native folder picker — used by the "backup to a Google
 # Drive sync folder" feature (Settings → Backup).
 tauri-plugin-fs = "2"
