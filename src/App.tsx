@@ -6,6 +6,7 @@ import { LoginPage } from "@/features/auth/LoginPage"
 import { authService } from "@/services/authService"
 import { useSession } from "@/stores/useSession"
 import { Toaster } from "@/components/ui/sonner"
+import { LicenseGate } from "@/features/license/LicenseGate"
 import { isTauri } from "@/db/sqlite"
 import { SQLITE_CUTOVER_ENABLED } from "@/db/persistence"
 
@@ -64,7 +65,9 @@ function App() {
         <div className="flex h-screen w-screen items-center justify-center text-muted-foreground">
           <Gem className="size-6 animate-pulse text-primary" />
         </div>
-      ) : !user ? (
+      ) : (
+        <LicenseGate>
+          {!user ? (
         <LoginPage />
       ) : (
         <BrowserRouter>
@@ -101,6 +104,8 @@ function App() {
           </Routes>
           </Suspense>
         </BrowserRouter>
+          )}
+        </LicenseGate>
       )}
       <Toaster richColors position="bottom-right" />
     </>

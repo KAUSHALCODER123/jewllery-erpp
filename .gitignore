@@ -28,3 +28,6 @@ dist-ssr
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+# license private key — NEVER commit
+tools/.license-private-key.json

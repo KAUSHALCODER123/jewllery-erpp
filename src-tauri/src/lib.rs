@@ -11,6 +11,15 @@
 
 use tauri_plugin_sql::{Builder as SqlBuilder, Migration, MigrationKind};
 
+/// Stable per-machine hardware id used to lock a license to one computer.
+/// On Windows this is the OS MachineGuid; the frontend hashes + formats it
+/// (see src/lib/machineId.ts). Copying the install to another PC yields a
+/// different id, so a license issued for one machine won't validate on another.
+#[tauri::command]
+fn get_machine_id() -> Result<String, String> {
+    machine_uid::get().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let migrations = vec![Migration {
@@ -29,6 +38,7 @@ pub fn run() {
                 .add_migrations("sqlite:jewel_erp.db", migrations)
                 .build(),
         )
+        .invoke_handler(tauri::generate_handler![get_machine_id])
         .run(tauri::generate_context!())
         .expect("error while running Jewel-ERP");
 }

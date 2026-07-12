@@ -32,6 +32,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { LicensePanel } from "@/features/license/LicensePanel"
 import {
   Table,
   TableBody,
@@ -65,6 +66,7 @@ export function SettingsPage() {
             <TabsTrigger value="account">My Account</TabsTrigger>
             <TabsTrigger value="backup">Backup</TabsTrigger>
             <TabsTrigger value="templates">Msg Templates</TabsTrigger>
+            <TabsTrigger value="license">License</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="shop" className="min-h-0 flex-1 overflow-auto p-4">
@@ -87,6 +89,9 @@ export function SettingsPage() {
         </TabsContent>
         <TabsContent value="templates" className="min-h-0 flex-1 overflow-auto p-4">
           <NotificationTemplates />
+        </TabsContent>
+        <TabsContent value="license" className="min-h-0 flex-1 overflow-auto p-4">
+          <LicensePanel />
         </TabsContent>
       </Tabs>
     </>
