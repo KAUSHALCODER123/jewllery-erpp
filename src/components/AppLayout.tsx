@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Calculator,
   Wrench,
+  HelpCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/stores/useSession"
@@ -55,6 +56,7 @@ const NAV: NavItem[] = [
   { to: "/reports", label: "Reports & GST", icon: FileBarChart },
   { to: "/receipt-designer", label: "Receipt Designer", icon: LayoutTemplate },
   { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/help", label: "Help", icon: HelpCircle },
 ]
 
 export function AppLayout() {
