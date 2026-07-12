@@ -28,8 +28,8 @@ persist to SQLite via `tauri-plugin-sql`. This is the staged migration of
 | **Seam bypasses removed** — `GirviPage` + `InvoiceReceipt` now use `loans.getAllPayments`/`getPayments` + `items.getByIds` (no component imports raw `db`) | components | **done** |
 | **Multi-firm one-DB-per-company** — `getSqlite()` opens `dbFileForCompany(activeCompanyId())` and schema-inits per file | `src/db/sqlite.ts`, `src/db/sqliteMigrate.ts` | **done** |
 | `useLiveQuery` reactivity under SQLite (Dexie-only observable) | app-wide | pending (SQLite runtime concern) |
-| **Live desktop validation** (`$1` vs `?`, real sale/loan) | desktop-e2e CI | **the gate** |
-| dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (needs full set + live validation) |
+| **Live desktop validation** (`$1` placeholders, real sale round-trip) | `npm run test:desktop` | **PASSED** — 9/9 on the real binary; `$1` works, tx-pool bug found & fixed (see below) |
+| dbService `isTauri()` dispatch (flip) | `src/services/dbService.ts` | **pending** (product decision — needs install-base migration plan + `useLiveQuery` story) |
 
 `sqlBuilder` and `sqliteRepo` are verified in Node (`e2e/logic/`) with a fake
 executor — the SQL generation and transaction control flow are tested without a
@@ -37,20 +37,34 @@ live Tauri runtime. The schema-parity test asserts every column the app writes
 exists in the migration, catching the classic "INSERT fails only on the desktop"
 drift.
 
-## Why the cutover isn't flipped yet
+## Desktop validation — done, and it caught a real bug
 
-The money-sensitive flows (`salesService.createInvoice` — 6 tables in one
-transaction; `loansService.addPayment` — interest allocation + capitalisation)
-must be **executed against a real SQLite** before being trusted. The Tauri SQL
-plugin (`sqlx`) only runs inside the desktop app, which cannot be built with the
-tooling on the primary dev box (WDAC blocks `cargo install`; see DESKTOP-E2E.md).
-Flipping blind is the exact risk prior sessions deferred for.
+The money-sensitive flows (`createInvoice` — 6 tables in one transaction;
+`loansService.addPayment` — interest allocation + capitalisation) have now been
+**executed against a real SQLite binary** (`VITE_SQLITE_CUTOVER=1` build +
+`npm run test:desktop`, which builds locally — the old WDAC assumption was wrong,
+see DESKTOP-E2E.md). The gate did its job:
+
+- **`$1` placeholders work** — no `?` dialect change needed.
+- **Transaction-pool bug found & fixed.** `withTransaction` issues `BEGIN` /
+  `COMMIT` as separate `execute()` calls, but stock `tauri-plugin-sql` 2.4.0 backs
+  SQLite with a multi-connection SQLx pool, so those statements landed on
+  different connections and the transaction never held — `createInvoice` (and
+  every atomic writer) failed on the real binary while single-row writes passed.
+  Fix: vendored the plugin at `src-tauri/vendor/tauri-plugin-sql` with its SQLite
+  pool pinned to a **single connection** (`SqlitePoolOptions::max_connections(1)`),
+  so every statement serialises onto one handle and `BEGIN…COMMIT` holds. Re-ran
+  the smoke → **9/9 green**, sale round-trip included.
+
+**Why it's still not flipped:** with the correctness bug resolved, the remaining
+blockers are (a) a product decision + install-base migration plan (existing users
+have IndexedDB data), and (b) the `useLiveQuery` reactivity gap below. The default
+stays Dexie until those are addressed.
 
 ## Remaining steps (in order)
 
-1. **Confirm the placeholder dialect** the plugin expects for SQLite (`$1` vs
-   `?`). `sqlBuilder`/`sqliteServices` emit `$1…$n`; adjust in one place if
-   needed. Verify with a one-line `SELECT $1` round-trip on a real desktop build.
+1. ~~**Confirm the placeholder dialect** (`$1` vs `?`)~~ — **done**: `$1…$n` works
+   on the real binary (login + full sale round-trip pass), no change needed.
 2. ~~**Simple, non-atomic services** via `makeTableRepo`~~ — `items`, `customers`
    and `nextSequence` are **done + tested** in `sqliteServices.ts`
    (`makeSqliteServices(exec)`). Remaining masters (`suppliers`, `karigars`,
@@ -90,13 +104,13 @@ Flipping blind is the exact risk prior sessions deferred for.
    reactivity; SQLite has no equivalent observable, so under the flag reads won't
    auto-refresh on write. Addressing this (manual invalidation / React Query /
    a change signal) is part of desktop validation, not the data-layer port.
-8. ~~**Validate on desktop-e2e CI**~~ — **set up**: the flag is now build-time
-   (`VITE_SQLITE_CUTOVER=1`), and `.github/workflows/desktop-e2e.yml` builds the
-   desktop binary with it ON and runs the smoke, which does a full sale round-trip
-   (write via SQLite → read the customer back from a fresh mount). Login already
-   exercises the SQLite system DB. **This job IS the gate** — its first real run
-   confirms the `$1`/`?` dialect and the end-to-end SQLite path on the binary.
-   (Can't run on the primary dev box — WDAC blocks `cargo install tauri-driver`.)
+8. ~~**Validate on desktop-e2e**~~ — **PASSED**: `VITE_SQLITE_CUTOVER=1` build +
+   `npm run test:desktop` runs the smoke (full sale round-trip: write via SQLite →
+   read the customer back from a fresh mount; login exercises the SQLite system DB).
+   It ran **locally on the dev box** (WDAC does not block it — see DESKTOP-E2E.md)
+   and in `.github/workflows/desktop-e2e.yml`. First run surfaced the
+   transaction-pool bug (fixed above); re-run is **9/9 green**. The sale round-trip
+   step is the standing regression guard for the atomic-writer path.
 9. ~~**Multi-firm**: one `sqlite:jewel_erp_co<id>.db` per company~~ — **done**:
    `getSqlite()` resolves `dbFileForCompany(activeCompanyId())` (firm 1 =
    `jewel_erp.db`, others `jewel_erp_co<id>.db` — mirrors `dbNameForCompany`),

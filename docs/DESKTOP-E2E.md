@@ -73,9 +73,15 @@ cd src-tauri && cargo build --release && cd ..
 npm run test:desktop
 ```
 
-This is the **cutover validation gate** (`docs/SQLITE-CUTOVER.md`). Confirm the
-`$1` vs `?` placeholder dialect here — if the plugin rejects `$1`, adjust
-`sqlBuilder`/`sqliteServices` in one place. The CI job below runs exactly this.
+This is the **cutover validation gate** (`docs/SQLITE-CUTOVER.md`). It has been run:
+`$1…$n` placeholders work as-is, and the gate caught a real transaction bug —
+stock `tauri-plugin-sql` 2.4.0 uses a multi-connection SQLx pool, so the
+`BEGIN`/`COMMIT` in `withTransaction` landed on different connections and every
+atomic writer (`createInvoice`, `addPayment`, …) failed on the binary while
+single-row writes passed. Fixed by vendoring the plugin with the SQLite pool
+pinned to one connection (`src-tauri/vendor/tauri-plugin-sql`, wired via
+`src-tauri/Cargo.toml`); the re-run is **9/9 green**. Keep this smoke as the
+regression guard for the atomic-writer path — the CI job below runs exactly this.
 
 > IndexedDB persists in the app's WebView2 user-data dir between runs, so the
 > first run bootstraps `admin/admin` and later runs reuse it. To force a clean
