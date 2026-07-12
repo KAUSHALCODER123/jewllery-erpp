@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { Gem, Copy, Check, ShieldAlert } from "lucide-react"
+import { Copy, Check, ShieldAlert } from "lucide-react"
+import { Logo } from "@/components/Logo"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -54,8 +55,8 @@ export function ActivationScreen({
     <div className="flex h-screen w-screen items-center justify-center bg-muted/30 p-6">
       <div className="w-full max-w-lg rounded-xl border bg-card p-7 shadow-sm">
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Gem className="size-6" />
+          <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10">
+            <Logo className="size-7" />
           </div>
           <div>
             <h1 className="text-lg font-semibold">Activate Jewel-ERP</h1>

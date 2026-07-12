@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
-import { Gem, LogIn } from "lucide-react"
+import { LogIn } from "lucide-react"
+import { Logo } from "@/components/Logo"
 import { toast } from "sonner"
 import type { Company } from "@/db/systemDb"
 import { authService } from "@/services/authService"
@@ -66,8 +67,8 @@ export function LoginPage() {
         className="w-[360px] space-y-4 rounded-xl border bg-card p-6 shadow-sm"
       >
         <div className="flex flex-col items-center gap-1 pb-2">
-          <div className="flex size-11 items-center justify-center rounded-lg bg-primary/15">
-            <Gem className="size-6 text-primary" />
+          <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10">
+            <Logo className="size-7" />
           </div>
           <h1 className="text-lg font-semibold tracking-tight">Jewel-ERP</h1>
           <p className="text-xs text-muted-foreground">Jewellery Store Management</p>

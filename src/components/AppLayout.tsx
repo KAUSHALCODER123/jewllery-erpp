@@ -8,7 +8,6 @@ import {
   Hammer,
   BookOpen,
   Users,
-  Gem,
   Truck,
   PiggyBank,
   FileBarChart,
@@ -27,6 +26,7 @@ import {
 import { cn } from "@/lib/utils"
 import { useSession } from "@/stores/useSession"
 import { Button } from "@/components/ui/button"
+import { Logo } from "@/components/Logo"
 
 interface NavItem {
   to: string
@@ -103,7 +103,7 @@ export function AppLayout() {
       {/* Sidebar */}
       <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar">
         <div className="flex h-12 items-center gap-2 border-b px-4">
-          <Gem className="size-5 text-primary" />
+          <Logo className="size-6" />
           <span className="font-semibold tracking-tight">Jewel-ERP</span>
         </div>
         <div className="border-b px-4 py-2">
