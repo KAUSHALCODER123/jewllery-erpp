@@ -166,7 +166,9 @@ CREATE TABLE IF NOT EXISTS repairs (
  receivedDate TEXT NOT NULL, promisedDate TEXT, description TEXT NOT NULL, condition TEXT,
  grossWt REAL, purity TEXT, image TEXT, estimatedAmount REAL NOT NULL DEFAULT 0,
  advanceAmount REAL NOT NULL DEFAULT 0, finalAmount REAL, workNotes TEXT, status TEXT NOT NULL,
- deliveredDate TEXT, createdBy TEXT, updatedBy TEXT, createdAt TEXT, updatedAt TEXT
+ deliveredDate TEXT, createdBy TEXT, updatedBy TEXT, createdAt TEXT, updatedAt TEXT,
+ karigarId INTEGER, karigarJobId INTEGER, metalAddedWt REAL, metalAddedPurity TEXT,
+ metalAddedRate REAL, metalRecoveredWt REAL
 );
 CREATE INDEX IF NOT EXISTS idx_repairs_customer ON repairs(customerId);
 CREATE INDEX IF NOT EXISTS idx_repairs_status ON repairs(status);
@@ -232,6 +234,7 @@ CREATE TABLE IF NOT EXISTS karigar_jobs (
   wastageAllowed REAL NOT NULL DEFAULT 0,
   description    TEXT,
   orderId        INTEGER,
+  repairId       INTEGER,
   status         TEXT NOT NULL,
   receivedDate   TEXT,
   createdAt      TEXT

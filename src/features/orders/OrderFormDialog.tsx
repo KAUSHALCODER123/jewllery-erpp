@@ -250,7 +250,7 @@ export function OrderFormDialog({
                         <TextCell value={r.purity} onChange={(v) => update(r.id, { purity: v })} />
                       </td>
                       <td>
-                        <NumCell value={r.grossWt} onChange={(v) => update(r.id, { grossWt: v })} />
+                        <NumCell value={r.grossWt} onChange={(v) => update(r.id, r.netWt === r.grossWt || r.netWt === 0 ? { grossWt: v, netWt: v } : { grossWt: v })} />
                       </td>
                       <td>
                         <NumCell value={r.netWt} onChange={(v) => update(r.id, { netWt: v })} />

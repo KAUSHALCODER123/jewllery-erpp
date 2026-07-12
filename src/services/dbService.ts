@@ -368,7 +368,39 @@ const repairsServiceDexie={
  getAll:():Promise<RepairJob[]>=>db.repairs.orderBy("id").reverse().toArray(),
  getHistory:(repairId:number):Promise<RepairHistory[]>=>db.repair_history.where("repairId").equals(repairId).sortBy("at"),
  async add(input:Omit<RepairJob,"id"|"repairNo"|"status"|"createdAt"|"updatedAt">):Promise<RepairJob>{return db.transaction("rw",[db.repairs,db.repair_history,db.counters,db.audit_log],async()=>{const{code:repairNo}=await nextSequence("repair",{prefix:"REP"});const now=nowIso();const record:RepairJob={...input,repairNo,status:"received",createdAt:now,updatedAt:now};const id=await db.repairs.add(record);await db.repair_history.add({repairId:id,status:"received",at:now,by:input.createdBy});await db.audit_log.add({createdAt:now,user:input.createdBy,action:"repair_intake",entity:"repair",entityId:id,afterJson:JSON.stringify(record)});return{...record,id}})},
- async setStatus(id:number,status:RepairStatus,context:{user?:string;reason?:string;finalAmount?:number}):Promise<void>{return db.transaction("rw",[db.repairs,db.repair_history,db.audit_log],async()=>{const before=await db.repairs.get(id);if(!before)throw new Error("Repair not found");if(before.status==="delivered")throw new Error("Delivered repair cannot be changed");const now=nowIso();const patch:Partial<RepairJob>={status,updatedBy:context.user,updatedAt:now,...(context.finalAmount!=null?{finalAmount:context.finalAmount}:{}),...(status==="delivered"?{deliveredDate:todayStr()}: {})};await db.repairs.update(id,patch);await db.repair_history.add({repairId:id,status,at:now,by:context.user,reason:context.reason});await db.audit_log.add({createdAt:now,user:context.user,action:"repair_status",entity:"repair",entityId:id,reason:context.reason,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})})}
+ async setStatus(id:number,status:RepairStatus,context:{user?:string;reason?:string;finalAmount?:number}):Promise<void>{return db.transaction("rw",[db.repairs,db.repair_history,db.audit_log],async()=>{const before=await db.repairs.get(id);if(!before)throw new Error("Repair not found");if(before.status==="delivered")throw new Error("Delivered repair cannot be changed");const now=nowIso();const patch:Partial<RepairJob>={status,updatedBy:context.user,updatedAt:now,...(context.finalAmount!=null?{finalAmount:context.finalAmount}:{}),...(status==="delivered"?{deliveredDate:todayStr()}: {})};await db.repairs.update(id,patch);await db.repair_history.add({repairId:id,status,at:now,by:context.user,reason:context.reason});await db.audit_log.add({createdAt:now,user:context.user,action:"repair_status",entity:"repair",entityId:id,reason:context.reason,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})})},
+ /** Issue extra metal for a repair to a karigar: raises a linked Karigar job
+  * (debits their metal ledger + posts stock-out) and records the metal on the repair. */
+ async assignKarigar(repairId:number,input:{karigarId:number;metalIssuedWt:number;metalRate:number;metalPurity?:string;wastageAllowed:number;user?:string}):Promise<void>{
+  return db.transaction("rw",[db.repairs,db.repair_history,db.karigar_jobs,db.karigars,db.counters,db.inventory_ledger,db.audit_log],async()=>{
+   const before=await db.repairs.get(repairId);if(!before)throw new Error("Repair not found")
+   if(before.status==="delivered")throw new Error("Delivered repair cannot be changed")
+   if(before.karigarJobId)throw new Error("Metal is already issued for this repair")
+   if(!(input.metalIssuedWt>0))throw new Error("Metal weight must be greater than zero")
+   const job=await karigarsServiceDexie.issueJob({karigarId:input.karigarId,issuedDate:todayStr(),metalIssuedWt:input.metalIssuedWt,wastageAllowed:input.wastageAllowed,description:`Repair ${before.repairNo}`,repairId})
+   const now=nowIso(),status:RepairStatus=before.status==="received"?"in_progress":before.status
+   const patch:Partial<RepairJob>={karigarId:input.karigarId,karigarJobId:job.id,metalAddedWt:input.metalIssuedWt,metalAddedPurity:input.metalPurity??before.purity,metalAddedRate:input.metalRate,status,updatedBy:input.user,updatedAt:now}
+   await db.repairs.update(repairId,patch)
+   await db.repair_history.add({repairId,status,at:now,by:input.user,reason:`Issued ${input.metalIssuedWt}g to karigar (${job.jobNo})`})
+   await db.audit_log.add({createdAt:now,user:input.user,action:"repair_issue_metal",entity:"repair",entityId:repairId,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})
+  })
+ },
+ /** Receive the finished piece back from the karigar: credits their ledger + posts
+  * stock-in via the linked job, returns any recovered scrap to stock, marks the repair ready. */
+ async receiveFromKarigar(repairId:number,input:{finishedWt:number;wastageAllowed:number;metalRecoveredWt?:number;user?:string}):Promise<void>{
+  return db.transaction("rw",[db.repairs,db.repair_history,db.karigar_jobs,db.karigars,db.inventory_ledger,db.audit_log],async()=>{
+   const before=await db.repairs.get(repairId);if(!before)throw new Error("Repair not found")
+   if(!before.karigarJobId)throw new Error("No metal was issued for this repair")
+   if(before.status==="delivered")throw new Error("Delivered repair cannot be changed")
+   await karigarsServiceDexie.receiveJob(before.karigarJobId,input.finishedWt,input.wastageAllowed)
+   const now=nowIso(),recovered=input.metalRecoveredWt??0
+   if(recovered>0)await db.inventory_ledger.add({date:todayStr(),movement:"in",weight:recovered,refType:"repair_scrap",refId:repairId,refNo:before.repairNo,description:`Scrap recovered — ${before.description}`,createdAt:now})
+   const patch:Partial<RepairJob>={metalRecoveredWt:recovered||undefined,status:"ready",updatedBy:input.user,updatedAt:now}
+   await db.repairs.update(repairId,patch)
+   await db.repair_history.add({repairId,status:"ready",at:now,by:input.user,reason:`Received from karigar (finished ${input.finishedWt}g${recovered?`, scrap +${recovered}g`:""})`})
+   await db.audit_log.add({createdAt:now,user:input.user,action:"repair_receive_metal",entity:"repair",entityId:repairId,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})
+  })
+ }
 }
 
 const salesReturnsServiceDexie = {

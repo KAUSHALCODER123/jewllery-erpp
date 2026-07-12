@@ -238,6 +238,12 @@ export interface RepairJob {
   estimatedAmount:number; advanceAmount:number; finalAmount?:number; workNotes?:string
   status:RepairStatus; deliveredDate?:string; createdBy?:string; updatedBy?:string
   createdAt?:string; updatedAt?:string
+  /** Goldsmith assigned to do the repair, and the metal-issue job raised for them. */
+  karigarId?:number; karigarJobId?:number
+  /** Extra metal supplied for the repair (added to the piece) + its billing rate ₹/g. */
+  metalAddedWt?:number; metalAddedPurity?:string; metalAddedRate?:number
+  /** Scrap metal cut off during the repair and recovered back into shop stock. */
+  metalRecoveredWt?:number
 }
 export interface RepairHistory { id?:number; repairId:number; status:RepairStatus; at:string; by?:string; reason?:string }
 
@@ -337,6 +343,8 @@ export interface KarigarJob {
   description?: string
   /** Optional link to the customer order this job fulfils. */
   orderId?: number
+  /** Optional link to the repair this job supplies metal for. */
+  repairId?: number
   status: KarigarJobStatus
   receivedDate?: string
   createdAt?: string

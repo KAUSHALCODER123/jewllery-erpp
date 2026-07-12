@@ -256,7 +256,51 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       const expectedCash = round(input.openingCash + (cashIn[0]?.n ?? 0) + (voucherNet[0]?.n ?? 0)); const record = { ...input, expectedCash, difference: round(input.physicalCash - expectedCash), closedAt: nowIso() }; const row = await closingsRepo.add(record); await auditRepo.add({ createdAt: nowIso(), user: input.closedBy, action: "close_day", entity: "day_closing", entityId: row.id, afterJson: JSON.stringify(record) }); return row as unknown as DayClosing
     },
   }
-  const repairsService={getAll:()=>queryRows<RepairJob>("repairs"," ORDER BY id DESC"),getHistory:(repairId:number)=>queryRows<RepairHistory>("repair_history"," WHERE repairId=$1 ORDER BY at",[repairId]),async add(input:Omit<RepairJob,"id"|"repairNo"|"status"|"createdAt"|"updatedAt">){return withTransaction(exec,async()=>{const{code:repairNo}=await nextSequenceRaw(exec,"repair",{prefix:"REP"}),now=nowIso();const record={...input,repairNo,status:"received" as const,createdAt:now,updatedAt:now};const row=await repairsRepo.add(record);await repairHistoryRepo.add({repairId:row.id,status:"received",at:now,by:input.createdBy});await auditRepo.add({createdAt:now,user:input.createdBy,action:"repair_intake",entity:"repair",entityId:row.id,afterJson:JSON.stringify(record)});return row as unknown as RepairJob})},async setStatus(id:number,status:RepairStatus,context:{user?:string;reason?:string;finalAmount?:number}){return withTransaction(exec,async()=>{const before=await repairsRepo.get(id) as unknown as RepairJob|undefined;if(!before)throw new Error("Repair not found");if(before.status==="delivered")throw new Error("Delivered repair cannot be changed");const now=nowIso(),patch={status,updatedBy:context.user,updatedAt:now,...(context.finalAmount!=null?{finalAmount:context.finalAmount}:{}),...(status==="delivered"?{deliveredDate:todayStr()}: {})};await repairsRepo.update(id,patch);await repairHistoryRepo.add({repairId:id,status,at:now,by:context.user,reason:context.reason});await auditRepo.add({createdAt:now,user:context.user,action:"repair_status",entity:"repair",entityId:id,reason:context.reason,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})})}}
+  const repairsService={getAll:()=>queryRows<RepairJob>("repairs"," ORDER BY id DESC"),getHistory:(repairId:number)=>queryRows<RepairHistory>("repair_history"," WHERE repairId=$1 ORDER BY at",[repairId]),async add(input:Omit<RepairJob,"id"|"repairNo"|"status"|"createdAt"|"updatedAt">){return withTransaction(exec,async()=>{const{code:repairNo}=await nextSequenceRaw(exec,"repair",{prefix:"REP"}),now=nowIso();const record={...input,repairNo,status:"received" as const,createdAt:now,updatedAt:now};const row=await repairsRepo.add(record);await repairHistoryRepo.add({repairId:row.id,status:"received",at:now,by:input.createdBy});await auditRepo.add({createdAt:now,user:input.createdBy,action:"repair_intake",entity:"repair",entityId:row.id,afterJson:JSON.stringify(record)});return row as unknown as RepairJob})},async setStatus(id:number,status:RepairStatus,context:{user?:string;reason?:string;finalAmount?:number}){return withTransaction(exec,async()=>{const before=await repairsRepo.get(id) as unknown as RepairJob|undefined;if(!before)throw new Error("Repair not found");if(before.status==="delivered")throw new Error("Delivered repair cannot be changed");const now=nowIso(),patch={status,updatedBy:context.user,updatedAt:now,...(context.finalAmount!=null?{finalAmount:context.finalAmount}:{}),...(status==="delivered"?{deliveredDate:todayStr()}: {})};await repairsRepo.update(id,patch);await repairHistoryRepo.add({repairId:id,status,at:now,by:context.user,reason:context.reason});await auditRepo.add({createdAt:now,user:context.user,action:"repair_status",entity:"repair",entityId:id,reason:context.reason,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})})},
+    // Issue extra repair metal to a karigar. issueJob/receiveJob wrap their own
+    // withTransaction and SQLite has no nested BEGIN, so their bodies are inlined here.
+    async assignKarigar(repairId:number,input:{karigarId:number;metalIssuedWt:number;metalRate:number;metalPurity?:string;wastageAllowed:number;user?:string}){
+      return withTransaction(exec,async()=>{
+        const before=await repairsRepo.get(repairId) as unknown as RepairJob|undefined
+        if(!before)throw new Error("Repair not found")
+        if(before.status==="delivered")throw new Error("Delivered repair cannot be changed")
+        if(before.karigarJobId)throw new Error("Metal is already issued for this repair")
+        if(!(input.metalIssuedWt>0))throw new Error("Metal weight must be greater than zero")
+        const{code:jobNo}=await nextSequenceRaw(exec,"karigar_job",{prefix:"JOB"})
+        const jobRec={karigarId:input.karigarId,issuedDate:todayStr(),metalIssuedWt:input.metalIssuedWt,wastageAllowed:input.wastageAllowed,description:`Repair ${before.repairNo}`,repairId,jobNo,finishedWt:0,status:"issued" as const,createdAt:nowIso()}
+        const job=await karigarJobsRepo.add(jobRec as never) as unknown as KarigarJob
+        await inventoryLedgerRepo.add({date:jobRec.issuedDate,movement:"out",weight:input.metalIssuedWt,refType:"karigar_issue",refId:job.id,refNo:jobNo,description:jobRec.description,createdAt:nowIso()})
+        const karigar=await karigarsRepo.get(input.karigarId) as unknown as Karigar|undefined
+        if(karigar)await karigarsRepo.update(input.karigarId,{metalBalanceWt:round3(karigar.metalBalanceWt+input.metalIssuedWt)})
+        const now=nowIso(),status:RepairStatus=before.status==="received"?"in_progress":before.status
+        const patch={karigarId:input.karigarId,karigarJobId:job.id,metalAddedWt:input.metalIssuedWt,metalAddedPurity:input.metalPurity??before.purity,metalAddedRate:input.metalRate,status,updatedBy:input.user,updatedAt:now}
+        await repairsRepo.update(repairId,patch)
+        await repairHistoryRepo.add({repairId,status,at:now,by:input.user,reason:`Issued ${input.metalIssuedWt}g to karigar (${jobNo})`})
+        await auditRepo.add({createdAt:now,user:input.user,action:"repair_issue_metal",entity:"repair",entityId:repairId,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})
+      })
+    },
+    async receiveFromKarigar(repairId:number,input:{finishedWt:number;wastageAllowed:number;metalRecoveredWt?:number;user?:string}){
+      return withTransaction(exec,async()=>{
+        const before=await repairsRepo.get(repairId) as unknown as RepairJob|undefined
+        if(!before)throw new Error("Repair not found")
+        if(!before.karigarJobId)throw new Error("No metal was issued for this repair")
+        if(before.status==="delivered")throw new Error("Delivered repair cannot be changed")
+        const job=await karigarJobsRepo.get(before.karigarJobId) as unknown as KarigarJob|undefined
+        if(job){
+          const credited=input.finishedWt+(job.metalIssuedWt*input.wastageAllowed)/100
+          await karigarJobsRepo.update(before.karigarJobId,{finishedWt:input.finishedWt,wastageAllowed:input.wastageAllowed,status:"received",receivedDate:todayStr()})
+          await inventoryLedgerRepo.add({date:todayStr(),movement:"in",weight:input.finishedWt,refType:"karigar_receive",refId:before.karigarJobId,refNo:job.jobNo,description:job.description,createdAt:nowIso()})
+          const karigar=await karigarsRepo.get(job.karigarId) as unknown as Karigar|undefined
+          if(karigar)await karigarsRepo.update(job.karigarId,{metalBalanceWt:round3(karigar.metalBalanceWt-credited)})
+        }
+        const now=nowIso(),recovered=input.metalRecoveredWt??0
+        if(recovered>0)await inventoryLedgerRepo.add({date:todayStr(),movement:"in",weight:recovered,refType:"repair_scrap",refId:repairId,refNo:before.repairNo,description:`Scrap recovered — ${before.description}`,createdAt:now})
+        const patch={metalRecoveredWt:recovered||undefined,status:"ready" as const,updatedBy:input.user,updatedAt:now}
+        await repairsRepo.update(repairId,patch)
+        await repairHistoryRepo.add({repairId,status:"ready",at:now,by:input.user,reason:`Received from karigar (finished ${input.finishedWt}g${recovered?`, scrap +${recovered}g`:""})`})
+        await auditRepo.add({createdAt:now,user:input.user,action:"repair_receive_metal",entity:"repair",entityId:repairId,beforeJson:JSON.stringify(before),afterJson:JSON.stringify({...before,...patch})})
+      })
+    }}
   const metalStockService={async summary(){const items=await queryRows<Item>("items"),jobs=await queryRows<KarigarJob>("karigar_jobs"),urd=await queryRows<UrdItem>("urd_items");const map=new Map<string,any>(),pct=(p:string)=>{const m=p.match(/\((\d{3})\)/)||p.match(/(\d{3})/);if(m)return Number(m[1])/1000;const k=p.match(/(\d{1,2})K/i);return k?Number(k[1])/24:1},add=(metal:string,purity:string,location:string,w:number)=>{const key=`${metal}|${purity}|${location}`,x=map.get(key)??{metal,purity,location,weight:0,fineWeight:0};x.weight=round3(x.weight+w);x.fineWeight=round3(x.fineWeight+w*pct(purity));map.set(key,x)};for(const i of items)if((i.status??"in_stock")!=="sold"&&i.status!=="melted")add(i.type,i.purity,i.status==="with_karigar"?"With karigar":"Shop stock",i.netWt);for(const j of jobs.filter(x=>x.status==="issued"))add("gold","Unspecified","With karigar",j.metalIssuedWt);for(const u of urd)add(u.type,u.purity||"Untested","URD awaiting refining",u.netWt);return[...map.values()]}}
 
   /**
