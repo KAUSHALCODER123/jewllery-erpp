@@ -130,8 +130,10 @@ async function main() {
 
   await step("create + select a walk-in customer", async () => {
     await (await driver.findElement(By.xpath('//*[contains(text(), "Select customer")]'))).click()
+    // Target the customer picker's search specifically — the billing grid now has
+    // its own "Search item…" box, so a loose placeholder*="Search" would match that.
     const input = await driver.wait(
-      until.elementLocated(By.css('input[placeholder*="Search"]')),
+      until.elementLocated(By.css('input[placeholder*="type a new name"]')),
       TIMEOUT,
     )
     await input.sendKeys(SALE_CUSTOMER)
