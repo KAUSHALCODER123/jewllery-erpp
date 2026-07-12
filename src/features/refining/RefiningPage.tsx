@@ -366,7 +366,7 @@ export function RefiningPage() {
                 <Field label="Refiner">
                   <div className="flex gap-1">
                     <Select value={refinerId} onValueChange={onSelectRefiner}>
-                      <SelectTrigger className="w-full">
+                      <SelectTrigger className="flex-1 min-w-0">
                         <SelectValue placeholder="In-house" />
                       </SelectTrigger>
                       <SelectContent>

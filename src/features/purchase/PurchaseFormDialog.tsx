@@ -275,7 +275,7 @@ export function PurchaseFormDialog({
               <Label className="text-xs text-muted-foreground">Supplier</Label>
               <div className="flex gap-1">
                 <Select value={supplierId} onValueChange={setSupplierId}>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger className="flex-1 min-w-0">
                     <SelectValue placeholder="Select supplier" />
                   </SelectTrigger>
                   <SelectContent>
