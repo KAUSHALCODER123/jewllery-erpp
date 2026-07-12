@@ -10,6 +10,7 @@
  *   node tools/license-keygen.mjs sign --machine <MID> --store "Shop Name" --days 365
  *       Make a license for one machine. Paste the printed string into the shop's
  *       "Activate" screen. `--days` sets how long until it expires (default 365).
+ *       Use `--lifetime` instead of `--days` for a never-expiring key.
  *
  * The shop can never forge a license: only this private key can sign one, and the
  * app only trusts signatures from its embedded public key, for its own machine id.
@@ -50,18 +51,21 @@ async function sign() {
   }
   const mid = arg("machine")
   const store = arg("store", "Store")
+  const lifetime = process.argv.includes("--lifetime")
   const days = Number(arg("days", "365"))
   if (!mid) {
     console.error('Missing --machine <MID>.  e.g. --machine A7F3-9K2M-... --store "Name" --days 365')
+    console.error("For a never-expiring key, add --lifetime instead of --days.")
     process.exit(1)
   }
   const { priv } = JSON.parse(readFileSync(KEYFILE, "utf8"))
   const key = await crypto.subtle.importKey("pkcs8", unb64(priv), { name: "Ed25519" }, false, ["sign"])
-  const payload = { v: 1, mid, store, iss: today(), exp: addDays(days) }
+  const exp = lifetime ? "lifetime" : addDays(days)
+  const payload = { v: 1, mid, store, iss: today(), exp }
   const bytes = new TextEncoder().encode(JSON.stringify(payload))
   const sig = await crypto.subtle.sign({ name: "Ed25519" }, key, bytes)
   const license = `${b64(bytes)}.${b64(sig)}`
-  console.log(`\nLicense for "${store}"  ·  machine ${mid}  ·  expires ${payload.exp}\n`)
+  console.log(`\nLicense for "${store}"  ·  machine ${mid}  ·  ${lifetime ? "LIFETIME (never expires)" : `expires ${exp}`}\n`)
   console.log(license)
 }
 
@@ -69,5 +73,5 @@ const cmd = process.argv[2]
 if (cmd === "genkeys") await genkeys()
 else if (cmd === "sign") await sign()
 else {
-  console.log("Usage:\n  node tools/license-keygen.mjs genkeys\n  node tools/license-keygen.mjs sign --machine <MID> --store \"Name\" --days 365")
+  console.log("Usage:\n  node tools/license-keygen.mjs genkeys\n  node tools/license-keygen.mjs sign --machine <MID> --store \"Name\" --days 365\n  node tools/license-keygen.mjs sign --machine <MID> --store \"Name\" --lifetime")
 }

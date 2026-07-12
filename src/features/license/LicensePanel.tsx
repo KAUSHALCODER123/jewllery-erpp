@@ -7,7 +7,10 @@ import { Label } from "@/components/ui/label"
 import { useLicense, TRIAL_DAYS } from "./useLicense"
 
 const STATUS_TEXT: Record<string, (s: ReturnType<typeof useLicense>["status"]) => string> = {
-  licensed: (s) => `Licensed to ${s.store ?? "this shop"} · valid until ${s.exp} (${s.daysLeft} day${s.daysLeft === 1 ? "" : "s"} left)`,
+  licensed: (s) =>
+    s.exp === "lifetime"
+      ? `Licensed to ${s.store ?? "this shop"} · lifetime — never expires`
+      : `Licensed to ${s.store ?? "this shop"} · valid until ${s.exp} (${s.daysLeft} day${s.daysLeft === 1 ? "" : "s"} left)`,
   trial: (s) => `Free trial — ${s.trialDaysLeft} of ${TRIAL_DAYS} days left. Activate a license to keep using the app.`,
   grace: (s) => `Expired on ${s.exp}. Still usable for a few more days — renew now to avoid a lock-out.`,
   expired: (s) => `Expired on ${s.exp}. Enter a renewed license to continue.`,

@@ -24,7 +24,7 @@ export interface LicensePayload {
   store: string
   /** Issue date YYYY-MM-DD. */
   iss: string
-  /** Expiry date YYYY-MM-DD. */
+  /** Expiry date YYYY-MM-DD, or the literal "lifetime" for a never-expiring key. */
   exp: string
 }
 
@@ -80,8 +80,13 @@ export async function verifyLicense(
     const ok = await crypto.subtle.verify({ name: "Ed25519" }, await publicKey(), sig, bytes)
     if (!ok) return { valid: false, reason: "bad-signature" }
     const payload = JSON.parse(new TextDecoder().decode(bytes)) as LicensePayload
+    if (payload.mid !== machineId) {
+      const daysLeft = payload.exp === "lifetime" ? undefined : daysBetween(payload.exp, now)
+      return { valid: false, reason: "wrong-machine", store: payload.store, exp: payload.exp, daysLeft }
+    }
+    // A "lifetime" key never expires.
+    if (payload.exp === "lifetime") return { valid: true, reason: "ok", store: payload.store, exp: "lifetime" }
     const daysLeft = daysBetween(payload.exp, now)
-    if (payload.mid !== machineId) return { valid: false, reason: "wrong-machine", store: payload.store, exp: payload.exp, daysLeft }
     if (payload.exp < toDay(now)) return { valid: false, reason: "expired", store: payload.store, exp: payload.exp, daysLeft }
     return { valid: true, reason: "ok", store: payload.store, exp: payload.exp, daysLeft }
   } catch {

@@ -52,6 +52,19 @@ test("a tampered payload (e.g. changed machine/expiry) is rejected", async () =>
   expect(r.reason).toBe("bad-signature")
 })
 
+test("a lifetime key is valid forever (no expiry), even far in the future", async () => {
+  // Signed for FIXTURE-MID-1234 with --lifetime.
+  const LIFETIME =
+    "eyJ2IjoxLCJtaWQiOiJGSVhUVVJFLU1JRC0xMjM0Iiwic3RvcmUiOiJGaXh0dXJlIFNob3AiLCJpc3MiOiIyMDI2LTA3LTEyIiwiZXhwIjoibGlmZXRpbWUifQ==.Ng9HKpA1tH7zPiuf00roeiGKFxxrK68ofo82YlekR6xHMyisGcG6CjdaDcv+3FxY5zH6UGmDNP5eHcZUlHMBAg=="
+  const soon = await verifyLicense(LIFETIME, MID, NOW)
+  expect(soon.valid).toBe(true)
+  expect(soon.exp).toBe("lifetime")
+  const decadesLater = await verifyLicense(LIFETIME, MID, new Date("2099-01-01T00:00:00Z"))
+  expect(decadesLater.valid).toBe(true)
+  // Still machine-locked: a lifetime key on another machine is rejected.
+  expect((await verifyLicense(LIFETIME, "OTHER", NOW)).reason).toBe("wrong-machine")
+})
+
 test("garbage input is rejected, never throws", async () => {
   expect((await verifyLicense("", MID, NOW)).reason).toBe("malformed")
   expect((await verifyLicense("not-a-license", MID, NOW)).reason).toBe("malformed")

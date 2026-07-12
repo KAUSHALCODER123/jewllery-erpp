@@ -40,9 +40,18 @@ node tools/license-keygen.mjs genkeys
 **10 stores = 10 Machine IDs = 10 licenses = you charge for 10.** One owner can't run
 a second store on the first store's key.
 
+## Lifetime (never-expiring) keys
+For a one-time purchase, issue a key with **`--lifetime`** instead of `--days`:
+```
+node tools/license-keygen.mjs sign --machine "A498-E6C4-F94A-BEEC" --store "Ramesh Jewellers" --lifetime
+```
+It never expires (still machine-locked, still can't be copied). Settings → License
+shows *"lifetime — never expires"*.
+
 ## Renewing
 Same command with a fresh `--days`. Send the new key; they paste it in Settings →
-License → Apply. Expiry dates are your recurring-revenue lever.
+License → Apply. Expiry dates are your recurring-revenue lever (use `--days` for
+annual plans, `--lifetime` for one-time sales).
 
 ## Handling edge cases
 - **New PC / Windows reinstall** changes the Machine ID → just issue a new key for the
