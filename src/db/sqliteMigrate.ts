@@ -32,6 +32,7 @@ const COLUMN_UPGRADES: string[] = [
   "ALTER TABLE repairs ADD COLUMN metalAddedRate REAL",
   "ALTER TABLE repairs ADD COLUMN metalRecoveredWt REAL",
   "ALTER TABLE karigar_jobs ADD COLUMN repairId INTEGER",
+  "ALTER TABLE companies ADD COLUMN receiptTheme TEXT",
 ]
 
 /** Create every table/index if missing, then apply additive column upgrades. Idempotent. */

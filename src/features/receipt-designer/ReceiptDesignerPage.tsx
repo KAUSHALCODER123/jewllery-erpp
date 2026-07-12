@@ -38,6 +38,16 @@ import {
   type ReceiptFontSize,
   type ReceiptLayout,
 } from "./layout"
+import {
+  RECEIPT_TEMPLATES,
+  RECEIPT_FONTS,
+  defaultReceiptTheme,
+  parseReceiptTheme,
+  serializeReceiptTheme,
+  matchTemplateId,
+  receiptFontClass,
+  type ReceiptTheme,
+} from "./theme"
 
 const FONT_SIZES: { value: ReceiptFontSize; label: string }[] = [
   { value: "xs", label: "XS" },
@@ -53,6 +63,8 @@ export function ReceiptDesignerPage() {
   const [layout, setLayout] = useState<ReceiptLayout>(() =>
     parseReceiptLayout(company?.receiptLayout),
   )
+  const [theme, setTheme] = useState<ReceiptTheme>(() => parseReceiptTheme(company?.receiptTheme))
+  const activeTemplate = matchTemplateId(theme)
   const [dragId, setDragId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -118,7 +130,13 @@ export function ReceiptDesignerPage() {
     setSaving(true)
     try {
       const receiptLayout = serializeReceiptLayout(layout)
-      const patch = { receiptLayout, printLogoUrl: logoUrl, printShowLogo: showLogo }
+      const patch = {
+        receiptLayout,
+        receiptTheme: serializeReceiptTheme(theme),
+        printAccentColor: theme.accent,
+        printLogoUrl: logoUrl,
+        printShowLogo: showLogo,
+      }
       await authService.updateCompany(company.id, patch)
       setCompanyProfile({ ...company, ...patch })
       toast.success("Receipt layout saved")
@@ -131,7 +149,8 @@ export function ReceiptDesignerPage() {
 
   const resetDefault = () => {
     setLayout(defaultReceiptLayout())
-    toast.info("Reset to the default layout (save to apply)")
+    setTheme(defaultReceiptTheme())
+    toast.info("Reset to the default layout & style (save to apply)")
   }
 
   return (
@@ -154,7 +173,43 @@ export function ReceiptDesignerPage() {
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-auto p-4 lg:grid-cols-[minmax(0,420px)_1fr]">
         {/* ---- Block palette / editor ---- */}
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
+          {/* Templates & style */}
+          <div className="space-y-3 rounded-lg border bg-card p-3">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Templates</p>
+            <div className="grid grid-cols-3 gap-2">
+              {RECEIPT_TEMPLATES.map((tpl) => (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => setTheme(tpl.theme)}
+                  className={cn(
+                    "flex flex-col items-center gap-1 rounded-md border p-2 text-[11px] transition-colors hover:bg-accent",
+                    activeTemplate === tpl.id && "border-primary ring-1 ring-primary",
+                  )}
+                >
+                  <span className="h-5 w-full rounded" style={{ backgroundColor: tpl.theme.accent }} />
+                  <span className="truncate">{tpl.name}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-3 text-xs">
+              <label className="flex items-center gap-1.5">
+                <span className="text-muted-foreground">Colour</span>
+                <input
+                  type="color"
+                  value={theme.accent}
+                  onChange={(e) => setTheme((t) => ({ ...t, accent: e.target.value }))}
+                  className="size-7 cursor-pointer rounded border bg-transparent p-0.5"
+                  title="Accent colour"
+                />
+              </label>
+              <StyleToggle label="Font" value={theme.font} options={RECEIPT_FONTS.map((f) => [f.value, f.label])} onChange={(v) => setTheme((t) => ({ ...t, font: v as ReceiptTheme["font"] }))} />
+              <StyleToggle label="Header" value={theme.header} options={[["plain", "Plain"], ["band", "Band"]]} onChange={(v) => setTheme((t) => ({ ...t, header: v as ReceiptTheme["header"] }))} />
+              <StyleToggle label="Border" value={theme.border} options={[["none", "None"], ["line", "Line"], ["box", "Box"]]} onChange={(v) => setTheme((t) => ({ ...t, border: v as ReceiptTheme["border"] }))} />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-1">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Receipt blocks
             </p>
@@ -200,7 +255,7 @@ export function ReceiptDesignerPage() {
             Live preview
           </p>
           <div className="flex justify-center rounded-lg border bg-muted/30 p-4">
-            <ReceiptPreview layout={layout} logoUrl={logoUrl} showLogo={showLogo} />
+            <ReceiptPreview layout={layout} theme={theme} logoUrl={logoUrl} showLogo={showLogo} />
           </div>
         </div>
       </div>
@@ -414,15 +469,19 @@ function BlockRow({
 
 function ReceiptPreview({
   layout,
+  theme,
   logoUrl,
   showLogo,
 }: {
   layout: ReceiptLayout
+  theme: ReceiptTheme
   logoUrl?: string
   showLogo?: boolean
 }) {
   const company = useSession((s) => s.company)
   const t = receiptT(company?.receiptLanguage)
+  const accent = theme.accent
+  const band = theme.header === "band"
 
   const SHOP = {
     name: company?.name ?? "Jewellery Shop",
@@ -445,7 +504,10 @@ function ReceiptPreview({
 
   const sections: Record<ReceiptBlockType, React.ReactNode> = {
     header: (
-      <div className="flex items-start justify-between border-b-2 border-black pb-2">
+      <div
+        className={cn("flex items-start justify-between pb-2", band ? "rounded-md p-3 text-white" : "border-b-2")}
+        style={band ? { backgroundColor: accent } : { borderBottomColor: accent }}
+      >
         <div className="flex items-start gap-2.5">
           {showLogo && logoUrl && (
             <img src={logoUrl} alt="Logo" className="size-12 object-contain" />
@@ -457,7 +519,7 @@ function ReceiptPreview({
           </div>
         </div>
         <div className="text-right">
-          <p className="text-sm font-bold">{t("taxInvoice")}</p>
+          <p className="text-sm font-bold" style={band ? undefined : { color: accent }}>{t("taxInvoice")}</p>
           <p className="text-[10px] leading-tight">{t("no")}: INV0001</p>
           <p className="text-[10px] leading-tight">{t("date")}: 10-07-2026</p>
         </div>
@@ -525,7 +587,7 @@ function ReceiptPreview({
         <PreviewLine label={t("taxable")} value={66400} />
         <PreviewLine label="CGST" value={996} />
         <PreviewLine label="SGST" value={996} />
-        <div className="mt-1 flex justify-between border-t border-black pt-1 font-bold">
+        <div className="mt-1 flex justify-between border-t border-black pt-1 font-bold" style={{ borderTopColor: accent }}>
           <span>{t("netPayable")}</span>
           <span className="tabular">{formatAmount(68392)}</span>
         </div>
@@ -542,15 +604,26 @@ function ReceiptPreview({
       </div>
     ),
     footer: (
-      <p className="mt-6 border-t pt-2 text-[10px] text-black/60">
+      <p className="mt-6 border-t pt-2 text-[10px] text-black/60" style={{ borderTopColor: accent }}>
         {company?.printTermsText || t("thankYou")}
       </p>
     ),
     text: null,
   }
 
+  const borderCls = theme.border === "box" ? "border-2" : theme.border === "line" ? "border-t-[4px]" : ""
+  const borderStyle =
+    theme.border === "box" ? { borderColor: accent } : theme.border === "line" ? { borderTopColor: accent } : undefined
+
   return (
-    <div className="w-[148mm] max-w-full border-t-[4px] border-black bg-white p-6 text-[12px] text-black shadow-xl">
+    <div
+      className={cn(
+        "w-[148mm] max-w-full bg-white p-6 text-[12px] text-black shadow-xl",
+        receiptFontClass(theme.font),
+        borderCls,
+      )}
+      style={borderStyle}
+    >
       {layout
         .filter((b) => b.enabled)
         .map((block) => {
@@ -576,6 +649,39 @@ function ReceiptPreview({
             </div>
           )
         })}
+    </div>
+  )
+}
+
+function StyleToggle({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  value: string
+  options: [string, string][]
+  onChange: (v: string) => void
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-muted-foreground">{label}</span>
+      <div className="flex overflow-hidden rounded-md border">
+        {options.map(([v, l]) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(v)}
+            className={cn(
+              "px-2 py-1 text-[11px] transition-colors",
+              value === v ? "bg-primary/15 text-primary" : "hover:bg-accent",
+            )}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

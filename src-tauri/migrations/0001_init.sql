@@ -593,5 +593,6 @@ CREATE TABLE IF NOT EXISTS companies (
   templateDues        TEXT,
   templateGirvi       TEXT,
   templateScheme      TEXT,
-  receiptLayout       TEXT
+  receiptLayout       TEXT,
+  receiptTheme        TEXT
 );

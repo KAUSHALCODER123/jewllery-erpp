@@ -15,6 +15,7 @@ import {
   fontSizeClass,
   type ReceiptBlockType,
 } from "@/features/receipt-designer/layout"
+import { parseReceiptTheme, receiptFontClass } from "@/features/receipt-designer/theme"
 import type { PosTotals } from "./calc"
 import { cn } from "@/lib/utils"
 
@@ -54,8 +55,10 @@ export function InvoiceReceipt({
     "w-[148mm]"
 
   const isThermal = paperSize === "80mm"
-  const accentColor = company?.printAccentColor || "#000000"
-  const hasAccent = !!company?.printAccentColor && company.printAccentColor !== "#000000"
+  const theme = parseReceiptTheme(company?.receiptTheme)
+  const band = theme.header === "band"
+  const accentColor = company?.printAccentColor || theme.accent
+  const hasAccent = accentColor !== "#000000"
 
   // The printed-receipt layout designed in the Receipt Designer (order + which
   // sections show). Absent/invalid → the standard order.
@@ -88,8 +91,8 @@ export function InvoiceReceipt({
   const sections: Record<ReceiptBlockType, React.ReactNode> = {
     header: (
       <div
-        className="flex items-start justify-between border-b-2 border-black pb-2"
-        style={hasAccent ? { borderBottomColor: accentColor } : undefined}
+        className={cn("flex items-start justify-between pb-2", band ? "rounded-md p-3 text-white" : "border-b-2 border-black")}
+        style={band ? { backgroundColor: accentColor } : hasAccent ? { borderBottomColor: accentColor } : undefined}
       >
         <div className="flex items-start gap-2.5">
           {company?.printShowLogo && company?.printLogoUrl && (
@@ -110,7 +113,7 @@ export function InvoiceReceipt({
         <div className="text-right">
           <p
             className={cn("font-bold", isThermal ? "text-xs" : "text-sm")}
-            style={hasAccent ? { color: accentColor } : undefined}
+            style={band ? undefined : hasAccent ? { color: accentColor } : undefined}
           >
             {t("taxInvoice")}
           </p>
@@ -307,11 +310,19 @@ export function InvoiceReceipt({
       {/* The printable invoice — sections rendered in the designed order. */}
       <div
         className={cn(
-          "print-area bg-white text-black shadow-xl border-t-[4px]",
+          "print-area bg-white text-black shadow-xl",
+          receiptFontClass(theme.font),
+          theme.border === "box" ? "border-2" : theme.border === "line" ? "border-t-[4px]" : "",
           widthClass,
           isThermal ? "p-3 text-[10px]" : "p-6 text-[12px]"
         )}
-        style={hasAccent ? { borderTopColor: accentColor } : undefined}
+        style={
+          theme.border === "box"
+            ? { borderColor: accentColor }
+            : theme.border === "line"
+              ? { borderTopColor: accentColor }
+              : undefined
+        }
       >
         {layout
           .filter((b) => b.enabled)
