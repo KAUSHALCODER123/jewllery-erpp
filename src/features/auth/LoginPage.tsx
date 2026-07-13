@@ -67,9 +67,7 @@ export function LoginPage() {
         className="w-[360px] space-y-4 rounded-xl border bg-card p-6 shadow-sm"
       >
         <div className="flex flex-col items-center gap-1 pb-2">
-          <div className="flex size-11 items-center justify-center rounded-lg bg-primary/10">
-            <Logo className="size-7" />
-          </div>
+          <Logo className="size-12" />
           <h1 className="text-lg font-semibold tracking-tight">Jewel-ERP</h1>
           <p className="text-xs text-muted-foreground">Jewellery Store Management</p>
         </div>
