@@ -6,7 +6,7 @@
  * gates casual access and separates cashier vs owner roles.
  */
 
-import { systemDb, type Company, type User, type UserRole } from "@/db/systemDb"
+import { systemDb, DEFAULT_COMPANY, type Company, type User, type UserRole } from "@/db/systemDb"
 import { isTauri, systemExecutor } from "@/db/sqlite"
 import { SQLITE_CUTOVER_ENABLED } from "@/db/persistence"
 import { makeSqliteAuth } from "@/services/sqliteAuth"
@@ -29,8 +29,7 @@ async function runBootstrap(): Promise<void> {
   const companyCount = await systemDb.companies.count()
   if (companyCount === 0) {
     await systemDb.companies.add({
-      name: "My Jewellery Shop",
-      city: "Pune",
+      ...DEFAULT_COMPANY,
       createdAt: nowIso(),
     })
   }

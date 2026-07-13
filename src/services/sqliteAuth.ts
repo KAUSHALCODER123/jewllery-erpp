@@ -8,7 +8,7 @@
  * SQLITE_CUTOVER_ENABLED && isTauri(). Off by default.
  */
 
-import type { Company, User, UserRole } from "@/db/systemDb"
+import { DEFAULT_COMPANY, type Company, type User, type UserRole } from "@/db/systemDb"
 import { makeTableRepo, type SqlExecutor } from "@/db/sqliteRepo"
 import { decodeRow } from "@/db/sqlBuilder"
 import { typesFor } from "@/db/sqliteSchema"
@@ -27,7 +27,7 @@ export function makeSqliteAuth(exec: SqlExecutor) {
   const runBootstrap = async (): Promise<void> => {
     await exec.run("UPDATE users SET role = 'staff' WHERE role = 'cashier'")
     if ((await companiesRepo.count()) === 0) {
-      await companiesRepo.add({ name: "My Jewellery Shop", city: "Pune", createdAt: nowIso() } as never)
+      await companiesRepo.add({ ...DEFAULT_COMPANY, createdAt: nowIso() } as never)
     }
     if ((await usersRepo.count()) === 0) {
       const salt = randomSalt()

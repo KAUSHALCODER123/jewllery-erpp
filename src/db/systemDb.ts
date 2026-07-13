@@ -65,6 +65,17 @@ export interface Company {
   receiptTheme?: string
 }
 
+/**
+ * Pre-filled shop profile created on a fresh install — personalised per client.
+ * (Editable later under Settings → Shop Profile.)
+ */
+export const DEFAULT_COMPANY = {
+  name: "Parivar Jewellers",
+  address: "Type 'A', Sector 13, Near Banthia School, New Panvel (E)",
+  city: "Navi Mumbai - 410206",
+  phone: "9892464162 / 9833018467",
+} as const
+
 export class SystemDatabase extends Dexie {
   users!: Table<User, number>
   companies!: Table<Company, number>
