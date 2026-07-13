@@ -52,16 +52,18 @@ import {
 export function SettingsPage() {
   const user = useSession((s) => s.user)
   const isOwner = user?.role === "owner"
+  // Single-branch app: the multi-firm tab only surfaces if more than one firm exists.
+  const showFirms = useLiveData(() => authService.listCompanies().then((cs) => cs.length > 1), [], false)
 
   return (
     <>
-      <PageHeader title="Settings" subtitle="Shop profile · Print layouts · Firms · Users" />
+      <PageHeader title="Settings" subtitle="Shop profile · Print layouts · Users" />
       <Tabs defaultValue="shop" className="flex min-h-0 flex-1 flex-col">
         <div className="border-b px-4 py-2">
           <TabsList>
             <TabsTrigger value="shop">Shop Profile</TabsTrigger>
             <TabsTrigger value="print">Print & Rates</TabsTrigger>
-            <TabsTrigger value="firms">Firms</TabsTrigger>
+            {showFirms && <TabsTrigger value="firms">Firms</TabsTrigger>}
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="account">My Account</TabsTrigger>
             <TabsTrigger value="backup">Backup</TabsTrigger>
@@ -75,9 +77,11 @@ export function SettingsPage() {
         <TabsContent value="print" className="min-h-0 flex-1 overflow-auto p-4">
           <PrintSettings />
         </TabsContent>
-        <TabsContent value="firms" className="min-h-0 flex-1 overflow-auto p-4">
-          <Firms />
-        </TabsContent>
+        {showFirms && (
+          <TabsContent value="firms" className="min-h-0 flex-1 overflow-auto p-4">
+            <Firms />
+          </TabsContent>
+        )}
         <TabsContent value="users" className="min-h-0 flex-1 overflow-auto p-4">
           {isOwner ? <UsersAdmin /> : <NoAccess />}
         </TabsContent>

@@ -74,21 +74,24 @@ export function LoginPage() {
           <p className="text-xs text-muted-foreground">Jewellery Store Management</p>
         </div>
 
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">Company / Firm</Label>
-          <Select value={companyId} onValueChange={setCompanyId}>
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select firm" />
-            </SelectTrigger>
-            <SelectContent>
-              {companies.map((c) => (
-                <SelectItem key={c.id} value={String(c.id)}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        {/* Single-branch app: the firm picker only appears if more than one firm exists. */}
+        {companies.length > 1 && (
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Company / Firm</Label>
+            <Select value={companyId} onValueChange={setCompanyId}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select firm" />
+              </SelectTrigger>
+              <SelectContent>
+                {companies.map((c) => (
+                  <SelectItem key={c.id} value={String(c.id)}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Financial Year</Label>
