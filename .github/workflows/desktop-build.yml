@@ -1,0 +1,60 @@
+name: Desktop Build (installer + exe)
+
+# Builds the Windows desktop app (Tauri v2) and uploads the standalone .exe plus
+# the NSIS/MSI installers as downloadable artifacts.
+#
+# Why CI: the primary dev box runs a Windows Application Control (WDAC) policy that
+# blocks executing freshly-compiled build scripts (os error 4551), so a from-scratch
+# `cargo build` / `tauri build` can't run there. windows-latest has no such policy.
+#
+# Run it: Actions → "Desktop Build (installer + exe)" → Run workflow (workflow_dispatch),
+# or push a tag like v0.1.0. Download the artifacts from the finished run.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*", "desktop-*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install JS deps
+        run: npm ci
+
+      - name: Build web bundle
+        run: npm run build
+
+      - name: Build desktop app (exe + installers)
+        run: npm run tauri:build
+
+      - name: Upload standalone exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: jewel-erp-exe
+          path: src-tauri/target/release/jewel-erp.exe
+          if-no-files-found: error
+
+      - name: Upload installers (NSIS + MSI)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jewel-erp-installers
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
