@@ -139,6 +139,11 @@ export interface SalesItem {
   makingAmount: number
   /** Harmonized System of Nomenclature code for tax reporting. */
   hsn?: string
+  /** Metal of this line (gold/silver…) — powers the daily weight tally. Present on
+   * loose/untagged lines; tagged lines inherit it from the sold item. */
+  metal?: MetalType
+  /** Category (Ring, Chain, Nathani…) for the by-category weight tally. */
+  category?: string
   /** rate * netWt + makingAmount (line total before tax). */
   finalAmount: number
 }
@@ -217,6 +222,9 @@ export interface CashVoucher {
   notes?: string
   createdBy?: string
   createdAt?: string
+  /** Soft-block: kept for audit/history but hidden from all active lists, day-close
+   * math and reports. Reversible (un-blockable). Never hard-deleted. */
+  blocked?: boolean
 }
 
 export interface DayClosing {
@@ -299,6 +307,9 @@ export interface Loan {
   /** Interest + principal collected at closure. */
   amountCollected?: number
   createdAt?: string
+  /** Soft-block: a wrongly-entered loan kept for audit/history but hidden from all
+   * active lists, day-close math and reports. Reversible. Never hard-deleted. */
+  blocked?: boolean
 }
 
 export interface LoanPayment {
@@ -438,12 +449,16 @@ export interface PurchaseItem {
   purchaseId: number
   description: string
   type: MetalType
+  /** Category (Ring, Chain…) — carried through for the by-category weight tally. */
+  category?: string
   purity: string
   grossWt: number
   /** Stone/other weight deducted from gross to get net metal weight. */
   stoneWt?: number
   netWt: number
-  /** Pure metal content = netWt × fineness(purity). */
+  /** Extra fine metal charged as wastage, in % of net weight. */
+  wastagePct?: number
+  /** Chargeable fine metal = netWt × (fineness(purity) + wastage%). */
   pureGoldWt?: number
   rate: number
   makingAmount: number
@@ -699,6 +714,9 @@ export interface Refiner {
   notes?: string
   createdAt?: string
   updatedAt?: string
+  /** Soft-block: kept for audit/history but hidden from the refiner picker and the
+   * active refiner list. Past refining jobs keep their link. Reversible. */
+  blocked?: boolean
 }
 
 /**
@@ -759,11 +777,45 @@ export interface InventoryLedger {
   movement: "in" | "out"
   /** Grams (always positive; direction is in `movement`). */
   weight: number
+  /** Metal (gold/silver…) this movement is for — powers the daily weight tally.
+   * Set on sale/purchase/URD movements; absent on internal (karigar/refining) ones. */
+  metalType?: MetalType
+  /** Category (Ring, Chain, Nathani, Old Gold…) for the by-category weight tally. */
+  category?: string
+  /** Rupee value of the movement (weight × rate + making), for the ₹ tally column. */
+  value?: number
   description?: string
   statusFrom?: string
   statusTo?: string
   createdBy?: string
   createdAt?: string
+}
+
+/** One metal×category row in the daily weight tally (grams + ₹ value). */
+export interface MetalTallyRow {
+  category: string
+  /** Net weight (g) in stock at the start of the day. */
+  opening: number
+  /** Weight purchased/received in on the day. */
+  inWt: number
+  /** Weight sold/issued out on the day. */
+  outWt: number
+  /** opening + inWt − outWt. */
+  closing: number
+  inValue: number
+  outValue: number
+}
+
+/** A metal's tally: its category rows plus rolled-up totals. */
+export interface MetalTallyGroup extends Omit<MetalTallyRow, "category"> {
+  metal: MetalType
+  categories: MetalTallyRow[]
+}
+
+/** Daily metal weight tally for a single day, one group per metal. */
+export interface MetalTally {
+  date: string
+  groups: MetalTallyGroup[]
 }
 
 /** Named monotonic counters used to mint sequential document numbers. */

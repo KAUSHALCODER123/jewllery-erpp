@@ -21,6 +21,11 @@ export interface SalesLine {
   makingPerGm: number
   /** HSN tax code. */
   hsn?: string
+  /** Metal of this line — drives the weight tally (gold/silver…). Loose (untagged)
+   * silver/nathani lines set this manually; tagged lines inherit it from the item. */
+  metal?: import("@/db/types").MetalType
+  /** Category (Ring, Chain, Nathani…) for the by-category weight tally. */
+  category?: string
 }
 
 export interface UrdLine {

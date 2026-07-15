@@ -21,6 +21,7 @@ import {
   RotateCcw,
   Calculator,
   Wrench,
+  Scale,
   HelpCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -54,6 +55,7 @@ const NAV: NavItem[] = [
   { to: "/karigar", label: "Karigar", icon: Hammer },
   { to: "/daybook", label: "Day Book", icon: BookOpen },
   { to: "/reports", label: "Reports & GST", icon: FileBarChart },
+  { to: "/metal-tally", label: "Metal Tally", icon: Scale },
   { to: "/receipt-designer", label: "Receipt Designer", icon: LayoutTemplate },
   { to: "/settings", label: "Settings", icon: Settings },
   { to: "/help", label: "Help", icon: HelpCircle },

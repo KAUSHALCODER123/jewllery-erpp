@@ -1,6 +1,6 @@
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { X, Printer, MessageCircle } from "lucide-react"
+import { X, Printer, MessageCircle, FileText, Receipt } from "lucide-react"
 import { defaultWaTemplate, fillTemplate, openWhatsApp } from "@/lib/waTemplates"
 import type { SalesInvoice, SalesItem, UrdItem } from "@/db/types"
 import { customersService, itemsService } from "@/services/dbService"
@@ -34,6 +34,11 @@ export function InvoiceReceipt({
   onClose: () => void
 }) {
   const { invoice, items, urd, totals } = payload
+  // Print mode: a Tax Invoice shows the GST breakup; an Estimate is the same
+  // saved sale printed without the tax lines and headed "ESTIMATE". Nothing about
+  // the stored sale, stock, reports or numbering changes — only what is printed.
+  const [mode, setMode] = useState<"invoice" | "estimate">("invoice")
+  const isEstimate = mode === "estimate"
   const company = useSession((s) => s.company)
   const t = receiptT(company?.receiptLanguage)
   const SHOP = {
@@ -112,11 +117,12 @@ export function InvoiceReceipt({
         </div>
         <div className="text-right">
           <p
-            className={cn("font-bold", isThermal ? "text-xs" : "text-sm")}
+            className={cn("font-bold uppercase", isThermal ? "text-xs" : "text-sm")}
             style={band ? undefined : hasAccent ? { color: accentColor } : undefined}
           >
-            {t("taxInvoice")}
+            {isEstimate ? t("estimate") : t("taxInvoice")}
           </p>
+          {isEstimate && <p className="text-[9px] leading-tight italic">{t("notATaxInvoice")}</p>}
           <p className="text-[10px] leading-tight">{t("no")}: {invoice.invoiceNo}</p>
           <p className="text-[10px] leading-tight">{t("date")}: {formatDate(invoice.date)}</p>
         </div>
@@ -222,21 +228,25 @@ export function InvoiceReceipt({
           {totals.billDiscount > 0 && <Line label={t("lessBillDiscount")} value={-totals.billDiscount} />}
           {totals.makingDiscount > 0 && <Line label={t("lessMakingDiscount")} value={-totals.makingDiscount} />}
           {totals.loyaltyDiscount > 0 && <Line label={t("lessLoyaltyPoints")} value={-totals.loyaltyDiscount} />}
-          <Line label={t("taxable")} value={totals.taxable} />
-          {totals.igst > 0 ? (
-            <Line label="IGST" value={totals.igst} />
-          ) : (
+          {!isEstimate && (
             <>
-              <Line label="CGST" value={totals.cgst} />
-              <Line label="SGST" value={totals.sgst} />
+              <Line label={t("taxable")} value={totals.taxable} />
+              {totals.igst > 0 ? (
+                <Line label="IGST" value={totals.igst} />
+              ) : (
+                <>
+                  <Line label="CGST" value={totals.cgst} />
+                  <Line label="SGST" value={totals.sgst} />
+                </>
+              )}
+              {totals.tcs > 0 && <Line label="TCS" value={totals.tcs} />}
             </>
           )}
-          {totals.tcs > 0 && <Line label="TCS" value={totals.tcs} />}
           <div
             className="mt-1 flex justify-between border-t border-black pt-1 font-bold"
             style={hasAccent ? { borderTopColor: accentColor } : undefined}
           >
-            <span>{t("netPayable")}</span>
+            <span>{isEstimate ? t("total") : t("netPayable")}</span>
             <span className="tabular">{formatAmount(totals.netAmount)}</span>
           </div>
           {invoice.advanceApplied && invoice.advanceApplied > 0 ? (
@@ -273,9 +283,31 @@ export function InvoiceReceipt({
       {/* Toolbar — hidden when printing */}
       <div className={cn("no-print mb-3 flex items-center justify-between", widthClass)}>
         <span className="text-sm font-medium text-white">
-          Invoice {invoice.invoiceNo}
+          {isEstimate ? "Estimate" : "Invoice"} {invoice.invoiceNo}
         </span>
         <div className="flex gap-2">
+          <div className="flex overflow-hidden rounded-md border border-white/30">
+            <button
+              type="button"
+              onClick={() => setMode("invoice")}
+              className={cn(
+                "flex items-center gap-1 px-2.5 py-1 text-xs font-medium",
+                !isEstimate ? "bg-white text-black" : "text-white hover:bg-white/10",
+              )}
+            >
+              <Receipt className="size-3.5" /> Tax Invoice
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("estimate")}
+              className={cn(
+                "flex items-center gap-1 px-2.5 py-1 text-xs font-medium",
+                isEstimate ? "bg-white text-black" : "text-white hover:bg-white/10",
+              )}
+            >
+              <FileText className="size-3.5" /> Estimate
+            </button>
+          </div>
           <Button
             size="sm"
             className="bg-[#25D366] text-white hover:bg-[#1da851]"

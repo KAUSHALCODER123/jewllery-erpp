@@ -176,6 +176,8 @@ export function CheckoutPane({
         rate: l.rate,
         makingAmount: lineMakingAmount(l),
         hsn: l.hsn || "7113",
+        metal: l.metal,
+        category: l.category,
         finalAmount: lineAmount(l),
       })),
       urd: urd.map((u) => ({

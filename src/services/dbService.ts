@@ -15,6 +15,7 @@
  */
 
 import { computeLoanDues } from "@/features/girvi/interest"
+import { computeMetalTally } from "@/features/reports/metalTally"
 import { db, activeCompanyId, JewelDatabase, dbNameForCompany } from "@/db/database"
 import { systemDb, type Company, type User } from "@/db/systemDb"
 import { isTauri, systemExecutor } from "@/db/sqlite"
@@ -38,6 +39,7 @@ import type {
   Receipt,
   BullionStock,
   InventoryLedger,
+  MetalTally,
   OrderPayment,
   PurchasePayment,
   PurchaseReturn,
@@ -332,7 +334,13 @@ const operationsServiceDexie = {
     await auditServiceDexie.add({ user: input.createdBy, action: "set_metal_rates", entity: "daily_metal_rate", entityId: id, afterJson: JSON.stringify(record) })
     return { ...record, id }
   },
-  getVouchers: (date?: string): Promise<CashVoucher[]> => date ? db.cash_vouchers.where("date").equals(date).toArray() : db.cash_vouchers.orderBy("id").reverse().toArray(),
+  /** Active vouchers only — blocked (voided) vouchers are hidden and excluded from cash math. */
+  getVouchers: (date?: string): Promise<CashVoucher[]> => (date ? db.cash_vouchers.where("date").equals(date).toArray() : db.cash_vouchers.orderBy("id").reverse().toArray()).then((rows) => rows.filter((v) => !v.blocked)),
+  /** Blocked vouchers for a day — surfaced only behind the owner "Show blocked" toggle. */
+  getBlockedVouchers: (date?: string): Promise<CashVoucher[]> => (date ? db.cash_vouchers.where("date").equals(date).toArray() : db.cash_vouchers.orderBy("id").reverse().toArray()).then((rows) => rows.filter((v) => !!v.blocked)),
+  /** Soft-block (never delete) a wrong voucher; excluded from day-close, kept for audit. */
+  async blockVoucher(id: number, actor?: { user?: string; role?: UserRole; reason?: string }): Promise<void> { assertAllowed(actor?.role,"irreversible_stock"); const before=await db.cash_vouchers.get(id); await db.cash_vouchers.update(id,{blocked:true}); await auditServiceDexie.add({user:actor?.user,action:"block_voucher",entity:"cash_voucher",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)}) },
+  async unblockVoucher(id: number, actor?: { user?: string; role?: UserRole }): Promise<void> { assertAllowed(actor?.role,"irreversible_stock"); await db.cash_vouchers.update(id,{blocked:false}); await auditServiceDexie.add({user:actor?.user,action:"unblock_voucher",entity:"cash_voucher",entityId:id}) },
   async addVoucher(input: Omit<CashVoucher, "id" | "voucherNo" | "createdAt">): Promise<CashVoucher> {
     if (!(input.amount > 0)) throw new Error("Amount must be greater than zero")
     return db.transaction("rw", [db.cash_vouchers, db.counters, db.audit_log], async () => {
@@ -352,9 +360,9 @@ const operationsServiceDexie = {
     ])
     const salesCash = invoices.reduce((s, x) => s + x.cashPaid, 0)
     const receiptCash = receipts.filter((x) => x.mode === "cash").reduce((s, x) => s + x.amount, 0)
-    const voucherCash = vouchers.filter((x) => x.mode === "cash").reduce((s, x) => s + (x.kind === "receipt" ? x.amount : -x.amount), 0)
+    const voucherCash = vouchers.filter((x) => x.mode === "cash" && !x.blocked).reduce((s, x) => s + (x.kind === "receipt" ? x.amount : -x.amount), 0)
     const purchaseCash = purchases.filter((x) => (x.paymentMode ?? "cash") === "cash").reduce((s, x) => s + x.amountPaid, 0)
-    const loanOut = loans.filter((x) => x.date === input.date).reduce((s, x) => s + x.loanAmount, 0)
+    const loanOut = loans.filter((x) => x.date === input.date && !x.blocked).reduce((s, x) => s + x.loanAmount, 0)
     const loanIn = loanPayments.reduce((s, x) => s + x.amount, 0)
     const expectedCash = round(input.openingCash + salesCash + receiptCash + voucherCash + loanIn - purchaseCash - loanOut)
     const record: DayClosing = { ...input, expectedCash, difference: round(input.physicalCash - expectedCash), closedAt: nowIso() }
@@ -491,11 +499,13 @@ const salesServiceDexie = {
             draft.urd.map((u) => ({ ...u, invoiceId })),
           )
         }
-        // Mark any tagged stock as sold.
+        // Mark any tagged stock as sold; log a weight-OUT for every line (tagged AND
+        // loose/untagged silver/nathani) so the metal weight tally stays correct.
         for (const li of draft.items) {
-          if (li.itemId) { await db.items.update(li.itemId, { status: "sold" }); await db.inventory_ledger.add({itemId:li.itemId,date:header.date,movement:"out",weight:li.netWt,refType:"sale",refId:invoiceId,refNo:invoiceNo,description:li.description,createdAt:nowIso()}) }
+          if (li.itemId) await db.items.update(li.itemId, { status: "sold" })
+          if (li.netWt > 0) await db.inventory_ledger.add({itemId:li.itemId,date:header.date,movement:"out",weight:li.netWt,metalType:li.metal,category:li.category,value:li.finalAmount,refType:"sale",refId:invoiceId,refNo:invoiceNo,description:li.description,createdAt:nowIso()})
         }
-        for(const u of draft.urd)await db.inventory_ledger.add({date:header.date,movement:"in",weight:u.netWt,refType:"urd",refId:invoiceId,refNo:invoiceNo,description:u.description,createdAt:nowIso()})
+        for(const u of draft.urd)await db.inventory_ledger.add({date:header.date,movement:"in",weight:u.netWt,metalType:u.type,category:"Old Gold",value:u.amount,refType:"urd",refId:invoiceId,refNo:invoiceNo,description:u.description,createdAt:nowIso()})
         // Apply loyalty points (earned − redeemed) to the customer.
         const delta = (header.pointsEarned ?? 0) - (header.pointsRedeemed ?? 0)
         if (delta !== 0) {
@@ -589,12 +599,21 @@ const salesServiceDexie = {
 /* ------------------------------------------------------------------ */
 
 const loansServiceDexie = {
-  getAll: (): Promise<Loan[]> => db.loans.orderBy("id").reverse().toArray(),
+  /** Active loans only — blocked (voided) loans are hidden everywhere by default. */
+  getAll: (): Promise<Loan[]> => db.loans.orderBy("id").filter((l) => !l.blocked).reverse().toArray(),
+
+  /** Blocked loans — surfaced only behind the owner "Blocked" tab. */
+  getBlocked: (): Promise<Loan[]> => db.loans.orderBy("id").filter((l) => !!l.blocked).reverse().toArray(),
 
   get: (id: number): Promise<Loan | undefined> => db.loans.get(id),
 
   getOpen: (): Promise<Loan[]> =>
-    db.loans.filter((l) => !l.isClosed).reverse().toArray(),
+    db.loans.filter((l) => !l.isClosed && !l.blocked).reverse().toArray(),
+
+  /** Soft-block (never delete) a wrongly-entered loan; keep it for audit. */
+  async block(id: number, actor?: { user?: string; role?: UserRole; reason?: string }): Promise<void> { assertAllowed(actor?.role,"irreversible_stock"); const before=await db.loans.get(id); await db.loans.update(id,{blocked:true}); await auditServiceDexie.add({user:actor?.user,action:"block_loan",entity:"loan",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)}) },
+
+  async unblock(id: number, actor?: { user?: string; role?: UserRole }): Promise<void> { assertAllowed(actor?.role,"irreversible_stock"); await db.loans.update(id,{blocked:false}); await auditServiceDexie.add({user:actor?.user,action:"unblock_loan",entity:"loan",entityId:id}) },
 
   async add(input: Omit<Loan, "id" | "loanNo" | "createdAt" | "isClosed" | "principalOutstanding">): Promise<Loan> {
     const { code: loanNo } = await nextSequence("loan", { prefix: "GRV" })
@@ -972,7 +991,7 @@ const purchaseServiceDexie = {
         await db.purchase_items.bulkAdd(
           draft.items.map((li) => ({ ...li, purchaseId })),
         )
-        for(const li of draft.items)await db.inventory_ledger.add({date:header.date,movement:"in",weight:li.netWt,refType:"purchase",refId:purchaseId,refNo:purchaseNo,description:`${li.description} · ${li.purity}`,createdAt:nowIso()})
+        for(const li of draft.items)await db.inventory_ledger.add({date:header.date,movement:"in",weight:li.netWt,metalType:li.type,category:li.category,value:li.amount,refType:"purchase",refId:purchaseId,refNo:purchaseNo,description:`${li.description} · ${li.purity}`,createdAt:nowIso()})
         return { ...header, id: purchaseId }
       },
     )
@@ -1221,7 +1240,11 @@ const refiningServiceDexie = {
 /* ------------------------------------------------------------------ */
 
 const refinersServiceDexie = {
-  getAll: (): Promise<Refiner[]> => db.refiners.orderBy("name").toArray(),
+  /** Active refiners only — blocked ones are hidden from the picker & list. */
+  getAll: (): Promise<Refiner[]> => db.refiners.orderBy("name").filter((r) => !r.blocked).toArray(),
+
+  /** Blocked refiners — surfaced only behind the owner "Show blocked" toggle. */
+  getBlocked: (): Promise<Refiner[]> => db.refiners.orderBy("name").filter((r) => !!r.blocked).toArray(),
 
   get: (id: number): Promise<Refiner | undefined> => db.refiners.get(id),
 
@@ -1234,7 +1257,10 @@ const refinersServiceDexie = {
   update: (id: number, patch: Partial<Refiner>): Promise<void> =>
     db.refiners.update(id, { ...patch, updatedAt: nowIso() }).then(() => undefined),
 
-  async remove(id: number, actor?: { user?: string; role?: UserRole; reason?: string }): Promise<void> { assertAllowed(actor?.role,"permanent_delete"); const before=await db.refiners.get(id); await db.refiners.delete(id); await auditServiceDexie.add({user:actor?.user,action:"permanent_delete",entity:"refiner",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)}) },
+  /** Soft-block (never delete): hide from active use, keep the record for audit. */
+  async block(id: number, actor?: { user?: string; role?: UserRole; reason?: string }): Promise<void> { assertAllowed(actor?.role,"irreversible_stock"); const before=await db.refiners.get(id); await db.refiners.update(id,{blocked:true,updatedAt:nowIso()}); await auditServiceDexie.add({user:actor?.user,action:"block_refiner",entity:"refiner",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)}) },
+
+  async unblock(id: number, actor?: { user?: string; role?: UserRole }): Promise<void> { assertAllowed(actor?.role,"irreversible_stock"); await db.refiners.update(id,{blocked:false,updatedAt:nowIso()}); await auditServiceDexie.add({user:actor?.user,action:"unblock_refiner",entity:"refiner",entityId:id}) },
 }
 
 /* ------------------------------------------------------------------ */
@@ -1593,7 +1619,7 @@ const ledgerServiceDexie = {
         })
       }
     }
-    const loans = await db.loans.toArray()
+    const loans = (await db.loans.toArray()).filter((l) => !l.blocked)
     for (const l of loans) {
       if (l.date === date) {
         rows.push({
@@ -1626,11 +1652,17 @@ const ledgerServiceDexie = {
         })
       }
     }
-    const vouchers = await db.cash_vouchers.where("date").equals(date).toArray()
+    const vouchers = (await db.cash_vouchers.where("date").equals(date).toArray()).filter((v) => !v.blocked)
     for (const v of vouchers) rows.push({ date, ref: v.voucherNo, particulars: `${v.category} (${v.mode})`, inflow: v.kind === "receipt" ? v.amount : 0, outflow: v.kind === "payment" ? v.amount : 0 })
     const totalIn = round(rows.reduce((s, r) => s + r.inflow, 0))
     const totalOut = round(rows.reduce((s, r) => s + r.outflow, 0))
     return { rows, totalIn, totalOut, net: round(totalIn - totalOut) }
+  },
+
+  /** Daily metal weight tally: per metal & category, opening/in/out/closing (g) + ₹. */
+  async metalTally(date: string): Promise<MetalTally> {
+    const rows = (await db.inventory_ledger.toArray()).filter((r) => r.metalType)
+    return computeMetalTally(rows, date)
   },
 
   /** GSTR-1 rows for a month ("YYYY-MM"), classified B2B (has GSTIN) vs B2C. */

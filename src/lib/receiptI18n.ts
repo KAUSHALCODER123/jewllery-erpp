@@ -23,6 +23,9 @@ export const RECEIPT_LANGUAGES: { code: ReceiptLang; label: string }[] = [
 
 export type ReceiptKey =
   | "taxInvoice"
+  | "estimate"
+  | "notATaxInvoice"
+  | "total"
   | "billTo"
   | "no"
   | "date"
@@ -82,6 +85,9 @@ type LangMap = Record<ReceiptLang, string>
 
 const DICT: Record<ReceiptKey, LangMap> = {
   taxInvoice: { en: "TAX INVOICE", hi: "कर बीजक", mr: "कर बीजक", gu: "કર બિલ", ta: "வரி விலைப்பட்டி" },
+  estimate: { en: "ESTIMATE", hi: "अनुमान पत्र", mr: "अंदाजपत्रक", gu: "અંદાજ પત્ર", ta: "மதிப்பீடு" },
+  notATaxInvoice: { en: "(Not a tax invoice)", hi: "(कर बीजक नहीं)", mr: "(कर बीजक नाही)", gu: "(કર બિલ નથી)", ta: "(வரி விலைப்பட்டி அல்ல)" },
+  total: { en: "Total", hi: "कुल", mr: "एकूण", gu: "કુલ", ta: "மொத்தம்" },
   billTo: { en: "Bill To:", hi: "ग्राहक:", mr: "ग्राहक:", gu: "ગ્રાહક:", ta: "வாடிக்கையாளர்:" },
   no: { en: "No", hi: "क्र.", mr: "क्र.", gu: "નં.", ta: "எண்" },
   date: { en: "Date", hi: "दिनांक", mr: "दिनांक", gu: "તારીખ", ta: "தேதி" },

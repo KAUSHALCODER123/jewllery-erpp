@@ -56,6 +56,7 @@ import type {
   RepairStatus,
 } from "@/db/types"
 import { computeLoanDues } from "@/features/girvi/interest"
+import { computeMetalTally } from "@/features/reports/metalTally"
 import { makeTableRepo, withTransaction, tauriExecutor, type SqlExecutor } from "@/db/sqliteRepo"
 import { decodeRow } from "@/db/sqlBuilder"
 import { typesFor } from "@/db/sqliteSchema"
@@ -244,7 +245,10 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       const record = { ...input, effectiveAt: nowIso(), createdAt: nowIso() }
       const row = await ratesRepo.add(record); await auditRepo.add({ createdAt: nowIso(), user: input.createdBy, action: "set_metal_rates", entity: "daily_metal_rate", entityId: row.id, afterJson: JSON.stringify(record) }); return row as unknown as DailyMetalRate
     },
-    getVouchers: (date?: string) => queryRows<CashVoucher>("cash_vouchers", date ? " WHERE date = $1 ORDER BY id DESC" : " ORDER BY id DESC", date ? [date] : []),
+    getVouchers: (date?: string) => queryRows<CashVoucher>("cash_vouchers", date ? " WHERE date = $1 AND COALESCE(blocked,0)=0 ORDER BY id DESC" : " WHERE COALESCE(blocked,0)=0 ORDER BY id DESC", date ? [date] : []),
+    getBlockedVouchers: (date?: string) => queryRows<CashVoucher>("cash_vouchers", date ? " WHERE date = $1 AND COALESCE(blocked,0)=1 ORDER BY id DESC" : " WHERE COALESCE(blocked,0)=1 ORDER BY id DESC", date ? [date] : []),
+    async blockVoucher(id:number,actor?:{user?:string;role?:UserRole;reason?:string}){assertAllowed(actor?.role,"irreversible_stock");const before=await vouchersRepo.get(id);await vouchersRepo.update(id,{blocked:true} as never);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"block_voucher",entity:"cash_voucher",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)})},
+    async unblockVoucher(id:number,actor?:{user?:string;role?:UserRole}){assertAllowed(actor?.role,"irreversible_stock");await vouchersRepo.update(id,{blocked:false} as never);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"unblock_voucher",entity:"cash_voucher",entityId:id})},
     async addVoucher(input: Omit<CashVoucher, "id" | "voucherNo" | "createdAt">) {
       return withTransaction(exec, async () => { if (!(input.amount > 0)) throw new Error("Amount must be greater than zero"); const { code: voucherNo } = await nextSequenceRaw(exec, input.kind === "payment" ? "payment_voucher" : "receipt_voucher", { prefix: input.kind === "payment" ? "PV" : "RV" }); const record = { ...input, voucherNo, createdAt: nowIso() }; const row = await vouchersRepo.add(record); await auditRepo.add({ createdAt: nowIso(), user: input.createdBy, action: `create_${input.kind}_voucher`, entity: "cash_voucher", entityId: row.id, afterJson: JSON.stringify(record) }); return row as unknown as CashVoucher })
     },
@@ -252,7 +256,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     async closeDay(input: { date: string; openingCash: number; physicalCash: number; notes?: string; closedBy?: string }) {
       if ((await queryRows("day_closings", " WHERE date = $1", [input.date])).length) throw new Error("This day is already closed")
       const cashIn = await exec.query<{ n: number }>("SELECT COALESCE(SUM(cashPaid),0) n FROM sales_invoices WHERE date=$1", [input.date])
-      const voucherNet = await exec.query<{ n: number }>("SELECT COALESCE(SUM(CASE WHEN kind='receipt' THEN amount ELSE -amount END),0) n FROM cash_vouchers WHERE date=$1 AND mode='cash'", [input.date])
+      const voucherNet = await exec.query<{ n: number }>("SELECT COALESCE(SUM(CASE WHEN kind='receipt' THEN amount ELSE -amount END),0) n FROM cash_vouchers WHERE date=$1 AND mode='cash' AND COALESCE(blocked,0)=0", [input.date])
       const expectedCash = round(input.openingCash + (cashIn[0]?.n ?? 0) + (voucherNet[0]?.n ?? 0)); const record = { ...input, expectedCash, difference: round(input.physicalCash - expectedCash), closedAt: nowIso() }; const row = await closingsRepo.add(record); await auditRepo.add({ createdAt: nowIso(), user: input.closedBy, action: "close_day", entity: "day_closing", entityId: row.id, afterJson: JSON.stringify(record) }); return row as unknown as DayClosing
     },
   }
@@ -504,9 +508,10 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
 
         // Mark any tagged stock as sold.
         for (const li of draft.items) {
-          if (li.itemId) { await itemsRepo.update(li.itemId, { status: "sold" }); await inventoryLedgerRepo.add({itemId:li.itemId,date:header.date,movement:"out",weight:li.netWt,refType:"sale",refId:invoiceId,refNo:invoiceNo,description:li.description,createdAt:nowIso()}) }
+          if (li.itemId) await itemsRepo.update(li.itemId, { status: "sold" })
+          if (li.netWt > 0) await inventoryLedgerRepo.add({itemId:li.itemId,date:header.date,movement:"out",weight:li.netWt,metalType:li.metal,category:li.category,value:li.finalAmount,refType:"sale",refId:invoiceId,refNo:invoiceNo,description:li.description,createdAt:nowIso()})
         }
-        for(const u of draft.urd)await inventoryLedgerRepo.add({date:header.date,movement:"in",weight:u.netWt,refType:"urd",refId:invoiceId,refNo:invoiceNo,description:u.description,createdAt:nowIso()})
+        for(const u of draft.urd)await inventoryLedgerRepo.add({date:header.date,movement:"in",weight:u.netWt,metalType:u.type,category:"Old Gold",value:u.amount,refType:"urd",refId:invoiceId,refNo:invoiceNo,description:u.description,createdAt:nowIso()})
 
         // Apply loyalty points (earned − redeemed) to the customer.
         const delta = (header.pointsEarned ?? 0) - (header.pointsRedeemed ?? 0)
@@ -560,9 +565,12 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
   }
 
   const loansService = {
-    getAll: () => loansRepo.getAll(["id", "DESC"]) as unknown as Promise<Loan[]>,
+    getAll: () => queryRows<Loan>("loans", " WHERE COALESCE(blocked,0)=0 ORDER BY id DESC"),
+    getBlocked: () => queryRows<Loan>("loans", " WHERE COALESCE(blocked,0)=1 ORDER BY id DESC"),
     get: (id: number) => loansRepo.get(id) as unknown as Promise<Loan | undefined>,
-    getOpen: () => queryRows<Loan>("loans", " WHERE COALESCE(isClosed, 0) = 0 ORDER BY id DESC"),
+    getOpen: () => queryRows<Loan>("loans", " WHERE COALESCE(isClosed, 0) = 0 AND COALESCE(blocked,0)=0 ORDER BY id DESC"),
+    async block(id:number,actor?:{user?:string;role?:UserRole;reason?:string}){assertAllowed(actor?.role,"irreversible_stock");const before=await loansRepo.get(id);await loansRepo.update(id,{blocked:true} as never);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"block_loan",entity:"loan",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)})},
+    async unblock(id:number,actor?:{user?:string;role?:UserRole}){assertAllowed(actor?.role,"irreversible_stock");await loansRepo.update(id,{blocked:false} as never);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"unblock_loan",entity:"loan",entityId:id})},
     getPayments: (loanId: number) =>
       loanPaymentsRepo.where({ loanId } as never) as unknown as Promise<LoanPayment[]>,
     getAllPayments: () => loanPaymentsRepo.getAll() as unknown as Promise<LoanPayment[]>,
@@ -949,16 +957,18 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
         const created = (await purchaseRepo.add(header as never)) as { id: number }
         const purchaseId = created.id
         for (const li of draft.items) await purchaseItemsRepo.add({ ...li, purchaseId } as never)
-        for(const li of draft.items)await inventoryLedgerRepo.add({date:header.date,movement:"in",weight:li.netWt,refType:"purchase",refId:purchaseId,refNo:purchaseNo,description:`${li.description} · ${li.purity}`,createdAt:nowIso()})
+        for(const li of draft.items)await inventoryLedgerRepo.add({date:header.date,movement:"in",weight:li.netWt,metalType:li.type,category:li.category,value:li.amount,refType:"purchase",refId:purchaseId,refNo:purchaseNo,description:`${li.description} · ${li.purity}`,createdAt:nowIso()})
         return { ...header, id: purchaseId } as PurchaseInvoice
       })
     },
   }
 
   const refinersService = {
-    getAll: () => refinersRepo.getAll(["name", "ASC"]) as unknown as Promise<Refiner[]>,
+    getAll: () => queryRows<Refiner>("refiners", " WHERE COALESCE(blocked,0)=0 ORDER BY name ASC"),
+    getBlocked: () => queryRows<Refiner>("refiners", " WHERE COALESCE(blocked,0)=1 ORDER BY name ASC"),
     get: (id: number) => refinersRepo.get(id) as unknown as Promise<Refiner | undefined>,
-    async remove(id:number,actor?:{user?:string;role?:UserRole;reason?:string}){assertAllowed(actor?.role,"permanent_delete");const before=await refinersRepo.get(id);await refinersRepo.remove(id);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"permanent_delete",entity:"refiner",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)})},
+    async block(id:number,actor?:{user?:string;role?:UserRole;reason?:string}){assertAllowed(actor?.role,"irreversible_stock");const before=await refinersRepo.get(id);await refinersRepo.update(id,{blocked:true,updatedAt:nowIso()} as never);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"block_refiner",entity:"refiner",entityId:id,reason:actor?.reason,beforeJson:JSON.stringify(before)})},
+    async unblock(id:number,actor?:{user?:string;role?:UserRole}){assertAllowed(actor?.role,"irreversible_stock");await refinersRepo.update(id,{blocked:false,updatedAt:nowIso()} as never);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"unblock_refiner",entity:"refiner",entityId:id})},
     update: (id: number, patch: Partial<Refiner>) =>
       refinersRepo.update(id, { ...patch, updatedAt: nowIso() }),
     async add(input: Omit<Refiner, "id" | "createdAt" | "updatedAt">): Promise<Refiner> {
@@ -1218,7 +1228,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       for (const o of orders) {
         if (o.advanceReceived > 0) rows.push({ date, ref: o.orderNo, particulars: "Order advance", inflow: o.advanceReceived, outflow: 0 })
       }
-      const loans = await queryRows<any>("loans", "")
+      const loans = await queryRows<any>("loans", " WHERE COALESCE(blocked,0)=0")
       for (const l of loans) {
         if (l.date === date) rows.push({ date, ref: l.loanNo, particulars: "Loan disbursed (Girvi)", inflow: 0, outflow: l.loanAmount })
         if (l.isClosed && l.closedDate === date && l.amountCollected) {
@@ -1232,6 +1242,11 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
       const totalIn = round(rows.reduce((s, r) => s + r.inflow, 0))
       const totalOut = round(rows.reduce((s, r) => s + r.outflow, 0))
       return { rows, totalIn, totalOut, net: round(totalIn - totalOut) }
+    },
+
+    async metalTally(date: string) {
+      const rows = await queryRows<any>("inventory_ledger", " WHERE metalType IS NOT NULL")
+      return computeMetalTally(rows, date)
     },
 
     async gstr1(month: string): Promise<Gstr1Row[]> {

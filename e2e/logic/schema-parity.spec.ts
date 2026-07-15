@@ -65,7 +65,7 @@ const REQUIRED: Record<string, string[]> = {
     "id", "loanNo", "customerId", "date", "itemsPledged", "grossWt", "netWt",
     "loanAmount", "interestRate", "collateralImage", "collateralThumbprint",
     "interestMode", "principalOutstanding", "isClosed", "closedDate",
-    "amountCollected", "createdAt",
+    "amountCollected", "createdAt", "blocked",
   ],
   loan_payments: ["id", "loanId", "date", "amount", "towardsInterest", "towardsPrincipal", "capitalisedInterest", "type", "notes"],
   receipts: ["id", "receiptNo", "customerId", "date", "amount", "mode", "notes", "createdAt"],

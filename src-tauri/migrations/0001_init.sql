@@ -100,6 +100,8 @@ CREATE TABLE IF NOT EXISTS sales_items (
   rate         REAL NOT NULL DEFAULT 0,
   makingAmount REAL NOT NULL DEFAULT 0,
   hsn          TEXT,
+  metal        TEXT,
+  category     TEXT,
   finalAmount  REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_sitem_invoice ON sales_items(invoiceId);
@@ -152,7 +154,8 @@ CREATE INDEX IF NOT EXISTS idx_rates_date ON daily_metal_rates(date);
 CREATE TABLE IF NOT EXISTS cash_vouchers (
   id INTEGER PRIMARY KEY AUTOINCREMENT, voucherNo TEXT NOT NULL UNIQUE, date TEXT NOT NULL,
   kind TEXT NOT NULL, category TEXT NOT NULL, mode TEXT NOT NULL, amount REAL NOT NULL DEFAULT 0,
-  party TEXT, reference TEXT, notes TEXT, createdBy TEXT, createdAt TEXT
+  party TEXT, reference TEXT, notes TEXT, createdBy TEXT, createdAt TEXT,
+  blocked INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_vouchers_date ON cash_vouchers(date);
 CREATE TABLE IF NOT EXISTS day_closings (
@@ -193,7 +196,8 @@ CREATE TABLE IF NOT EXISTS loans (
   isClosed              INTEGER NOT NULL DEFAULT 0,
   closedDate            TEXT,
   amountCollected       REAL,
-  createdAt             TEXT
+  createdAt             TEXT,
+  blocked               INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_loans_customer ON loans(customerId);
 CREATE INDEX IF NOT EXISTS idx_loans_date ON loans(date);
@@ -324,10 +328,12 @@ CREATE TABLE IF NOT EXISTS purchase_items (
   purchaseId   INTEGER NOT NULL,
   description  TEXT NOT NULL,
   type         TEXT NOT NULL,
+  category     TEXT,
   purity       TEXT NOT NULL,
   grossWt      REAL NOT NULL DEFAULT 0,
   stoneWt      REAL,
   netWt        REAL NOT NULL DEFAULT 0,
+  wastagePct   REAL,
   pureGoldWt   REAL,
   rate         REAL NOT NULL DEFAULT 0,
   makingAmount REAL NOT NULL DEFAULT 0,
@@ -489,7 +495,8 @@ CREATE TABLE IF NOT EXISTS refiners (
   gstPct       REAL,
   notes        TEXT,
   createdAt    TEXT,
-  updatedAt    TEXT
+  updatedAt    TEXT,
+  blocked      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_refiners_name ON refiners(name);
 
@@ -536,6 +543,9 @@ CREATE TABLE IF NOT EXISTS inventory_ledger (
   refNo        TEXT,
   movement     TEXT NOT NULL,
   weight       REAL NOT NULL DEFAULT 0,
+  metalType    TEXT,
+  category     TEXT,
+  value        REAL,
   description  TEXT,
   statusFrom   TEXT,
   statusTo     TEXT,

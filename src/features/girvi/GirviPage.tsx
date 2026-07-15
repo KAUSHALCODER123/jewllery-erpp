@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react"
 import { useLiveData } from "@/db/useLiveData"
-import { Plus, Landmark, Receipt, Lock, Eye, Search } from "lucide-react"
+import { Plus, Landmark, Receipt, Lock, Eye, Search, Ban, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 import type { Loan, LoanPayment } from "@/db/types"
 import { loansService, customersService, todayStr } from "@/services/dbService"
 import { formatAmount, formatDate, wt } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { can } from "@/lib/permissions"
+import { useSession } from "@/stores/useSession"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -33,7 +35,9 @@ import { computeLoanDues } from "./interest"
 import { LoanDetailsDialog } from "./LoanDetailsDialog"
 
 export function GirviPage() {
-  const [tab, setTab] = useState<"open" | "all">("open")
+  const user = useSession((s) => s.user)
+  const canBlock = can(user?.role, "irreversible_stock")
+  const [tab, setTab] = useState<"open" | "all" | "blocked">("open")
   const [search, setSearch] = useState("")
   const [formOpen, setFormOpen] = useState(false)
   const [pavati, setPavati] = useState<Loan | null>(null)
@@ -41,8 +45,31 @@ export function GirviPage() {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null)
 
   const loans = useLiveData(() => loansService.getAll(), [], undefined)
+  const blockedLoans = useLiveData(() => loansService.getBlocked(), [], [])
   const customers = useLiveData(() => customersService.getAll(), [], [])
   const payments = useLiveData(() => loansService.getAllPayments(), [], [])
+
+  const blockLoan = async (l: Loan) => {
+    if (!l.id || !canBlock) return
+    const reason = window.prompt(`Reason to block loan ${l.loanNo}:`)?.trim()
+    if (!reason || !confirm(`Block loan ${l.loanNo}? It will be hidden from the loan lists and reports but kept for records.`)) return
+    try {
+      await loansService.block(l.id, { user: user?.name, role: user?.role, reason })
+      toast.success(`Blocked ${l.loanNo}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
+  const unblockLoan = async (l: Loan) => {
+    if (!l.id) return
+    try {
+      await loansService.unblock(l.id, { user: user?.name, role: user?.role })
+      toast.success(`Unblocked ${l.loanNo}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
 
   const custInfo = useMemo(() => {
     const m = new Map<number, { name: string; mobile?: string }>()
@@ -61,7 +88,7 @@ export function GirviPage() {
   }, [payments])
 
   const q = search.trim().toLowerCase()
-  const visible = (loans ?? [])
+  const visible = (tab === "blocked" ? (blockedLoans ?? []) : (loans ?? []))
     .filter((l) => (tab === "open" ? !l.isClosed : true))
     .filter((l) => {
       if (!q) return true
@@ -86,10 +113,13 @@ export function GirviPage() {
       />
 
       <div className="flex items-center gap-2 border-b px-4 py-2">
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "open" | "all")}>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "open" | "all" | "blocked")}>
           <TabsList>
             <TabsTrigger value="open">Open</TabsTrigger>
             <TabsTrigger value="all">All</TabsTrigger>
+            {canBlock && (blockedLoans?.length ?? 0) > 0 && (
+              <TabsTrigger value="blocked">Blocked ({blockedLoans!.length})</TabsTrigger>
+            )}
           </TabsList>
         </Tabs>
         <div className="relative ml-auto w-60">
@@ -104,7 +134,7 @@ export function GirviPage() {
       </div>
 
       <div className="flex-1 overflow-auto">
-        {loans && loans.length === 0 ? (
+        {loans && loans.length === 0 && tab !== "blocked" ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-3 py-20 text-center">
             <Landmark className="size-10 text-muted-foreground/50" />
             <p className="text-sm text-muted-foreground">No gold loans yet.</p>
@@ -164,12 +194,14 @@ export function GirviPage() {
                       <span
                         className={cn(
                           "rounded px-1.5 py-0.5 text-[11px] font-medium",
-                          l.isClosed
+                          l.blocked
                             ? "bg-muted text-muted-foreground"
-                            : "bg-emerald-100 text-emerald-800",
+                            : l.isClosed
+                              ? "bg-muted text-muted-foreground"
+                              : "bg-emerald-100 text-emerald-800",
                         )}
                       >
-                        {l.isClosed ? "Closed" : "Active"}
+                        {l.blocked ? "Blocked" : l.isClosed ? "Closed" : "Active"}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -192,16 +224,41 @@ export function GirviPage() {
                         >
                           <Receipt className="size-4" />
                         </Button>
-                        {!l.isClosed && (
+                        {l.blocked ? (
                           <Button
                             variant="ghost"
-                            size="icon"
-                            className="size-7"
-                            title="Close / Redeem"
-                            onClick={() => setClosing(l)}
+                            size="sm"
+                            className="h-7 text-xs"
+                            title="Unblock loan"
+                            onClick={() => void unblockLoan(l)}
                           >
-                            <Lock className="size-4" />
+                            <RotateCcw className="size-3.5" /> Unblock
                           </Button>
+                        ) : (
+                          <>
+                            {!l.isClosed && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7"
+                                title="Close / Redeem"
+                                onClick={() => setClosing(l)}
+                              >
+                                <Lock className="size-4" />
+                              </Button>
+                            )}
+                            {canBlock && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-7 text-destructive"
+                                title="Block (void &amp; hide, keep for records)"
+                                onClick={() => void blockLoan(l)}
+                              >
+                                <Ban className="size-4" />
+                              </Button>
+                            )}
+                          </>
                         )}
                       </div>
                     </TableCell>

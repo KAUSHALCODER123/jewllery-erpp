@@ -2,11 +2,19 @@ import { useRef, useState, useEffect, type KeyboardEvent as ReactKeyboardEvent }
 import { Barcode, Plus, Trash2, Search } from "lucide-react"
 import { toast } from "sonner"
 import { itemsService } from "@/services/dbService"
-import type { Item } from "@/db/types"
+import type { Item, MetalType } from "@/db/types"
 import { wt, formatAmount } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { METAL_TYPES, CATEGORIES } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem as SelectOption,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { usePosStore } from "./usePosStore"
 import { lineAmount, lineMakingAmount } from "./calc"
 import { NumCell, TextCell } from "./GridCells"
@@ -161,10 +169,18 @@ export function SalesGrid() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => addSalesLine()}
+          onClick={() => addSalesLine({ metal: "gold", category: "Other" })}
           title="Add a blank line for an untagged item"
         >
           <Plus className="size-4" /> Blank row
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => addSalesLine({ metal: "silver", category: "Other", description: "Silver (by weight)" })}
+          title="Sell silver / small gold by weight — no barcode tag needed"
+        >
+          <Plus className="size-4" /> Loose (by weight)
         </Button>
       </div>
 
@@ -175,6 +191,8 @@ export function SalesGrid() {
             <tr className="[&>th]:px-2 [&>th]:py-1.5 [&>th]:text-left [&>th]:font-medium">
               <th className="w-24">Tag</th>
               <th>Description</th>
+              <th className="w-20">Metal</th>
+              <th className="w-24">Category</th>
               <th className="w-24 text-right">Net Wt (g)</th>
               <th className="w-28 text-right">Rate/g</th>
               <th className="w-28 text-right">Making/g</th>
@@ -201,6 +219,37 @@ export function SalesGrid() {
                     placeholder="Item description"
                     aria-label="Description"
                   />
+                </td>
+                <td>
+                  <Select
+                    value={l.metal ?? "gold"}
+                    onValueChange={(v) => updateSalesLine(l.id, { metal: v as MetalType })}
+                  >
+                    <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none" aria-label="Metal">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {METAL_TYPES.map((m) => (
+                        <SelectOption key={m.value} value={m.value}>{m.label}</SelectOption>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </td>
+                <td>
+                  <Select
+                    value={l.category ?? "Other"}
+                    onValueChange={(v) => updateSalesLine(l.id, { category: v })}
+                  >
+                    <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none" aria-label="Category">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CATEGORIES.map((c) => (
+                        <SelectOption key={c.prefix} value={c.label}>{c.label}</SelectOption>
+                      ))}
+                      <SelectOption value="Nathani">Nathani</SelectOption>
+                    </SelectContent>
+                  </Select>
                 </td>
                 <td>
                   <NumCell
@@ -244,7 +293,7 @@ export function SalesGrid() {
             ))}
             {sales.length === 0 && (
               <tr>
-                <td colSpan={8} className="py-10 text-center text-muted-foreground">
+                <td colSpan={10} className="py-10 text-center text-muted-foreground">
                   Scan a barcode or add a blank row to start billing.
                 </td>
               </tr>
@@ -253,7 +302,7 @@ export function SalesGrid() {
           {sales.length > 0 && (
             <tfoot className="sticky bottom-0 bg-card">
               <tr className="border-t-2 font-medium [&>td]:px-2 [&>td]:py-1.5">
-                <td colSpan={2} className="text-muted-foreground">
+                <td colSpan={4} className="text-muted-foreground">
                   {sales.length} item(s)
                 </td>
                 <td className="text-right tabular">

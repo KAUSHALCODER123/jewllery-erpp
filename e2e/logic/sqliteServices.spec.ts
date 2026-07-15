@@ -440,6 +440,50 @@ test("loansService.getOpen filters out closed loans", async () => {
   expect(calls[0].sql).toContain("COALESCE(isClosed, 0) = 0")
 })
 
+/* ---- soft-block (block instead of delete): refiners / loans / vouchers ---- */
+
+test("getAll excludes blocked records; getBlocked selects only them", async () => {
+  for (const svc of ["refiners", "loans", "cash_vouchers"] as const) {
+    const all = fakeExecutor([{ match: new RegExp(`FROM "${svc}"`), rows: [] }])
+    const s = makeSqliteServices(all.exec)
+    if (svc === "refiners") { await s.refinersService.getAll(); await s.refinersService.getBlocked() }
+    else if (svc === "loans") { await s.loansService.getAll(); await s.loansService.getBlocked() }
+    else { await s.operationsService.getVouchers("2026-07-15"); await s.operationsService.getBlockedVouchers("2026-07-15") }
+    expect(all.calls[0].sql, `${svc} getAll`).toContain("COALESCE(blocked,0)=0")
+    expect(all.calls[1].sql, `${svc} getBlocked`).toContain("COALESCE(blocked,0)=1")
+  }
+})
+
+test("block sets blocked=1 and writes an audit row (loan example)", async () => {
+  const { exec, calls } = fakeExecutor([
+    { match: /FROM "loans" WHERE "id"/, rows: [{ id: 7, loanNo: "GRV0007" }] },
+  ])
+  const { loansService } = makeSqliteServices(exec)
+  await loansService.block(7, { user: "Owner", role: "owner", reason: "duplicate entry" })
+  const update = calls.find((c) => /UPDATE "loans"/.test(c.sql))
+  expect(update, "loan update ran").toBeTruthy()
+  expect(update!.params).toContain(1) // blocked coerced true -> 1
+  expect(calls.some((c) => /INSERT INTO "audit_log"/.test(c.sql) && c.params.includes("block_loan"))).toBeTruthy()
+})
+
+test("block is refused for a staff role (irreversible_stock gate)", async () => {
+  const { exec } = fakeExecutor([{ match: /FROM "refiners"/, rows: [{ id: 1, name: "X" }] }])
+  const { refinersService } = makeSqliteServices(exec)
+  await expect(refinersService.block(1, { user: "S", role: "staff", reason: "x" })).rejects.toThrow(/restricted/)
+})
+
+test("day-close voucher cash excludes blocked vouchers", async () => {
+  const { exec, calls } = fakeExecutor([
+    { match: /FROM "day_closings"/, rows: [] },
+    { match: /SUM\(cashPaid\)/, rows: [{ n: 0 }] },
+    { match: /FROM cash_vouchers/, rows: [{ n: 0 }] },
+  ])
+  const { operationsService } = makeSqliteServices(exec)
+  await operationsService.closeDay({ date: "2026-07-15", openingCash: 0, physicalCash: 0 })
+  const voucherSum = calls.find((c) => /FROM cash_vouchers WHERE/.test(c.sql))
+  expect(voucherSum!.sql).toContain("COALESCE(blocked,0)=0")
+})
+
 /* ---- read / report layer ---- */
 
 test("reportsService.getDayBook aggregates the day's invoices", async () => {

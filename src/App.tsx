@@ -26,6 +26,7 @@ const DayBookPage = lazy(() => named(import("@/features/daybook/DayBookPage"), "
 const PurchasePage = lazy(() => named(import("@/features/purchase/PurchasePage"), "PurchasePage"))
 const SchemesPage = lazy(() => named(import("@/features/schemes/SchemesPage"), "SchemesPage"))
 const ReportsPage = lazy(() => named(import("@/features/reports/ReportsPage"), "ReportsPage"))
+const MetalTallyPage = lazy(() => named(import("@/features/reports/MetalTallyPage"), "MetalTallyPage"))
 const ReceiptPage = lazy(() => named(import("@/features/receipt/ReceiptPage"), "ReceiptPage"))
 const SalesReturnsPage = lazy(() => named(import("@/features/sales-returns/SalesReturnsPage"), "SalesReturnsPage"))
 const OperationsPage = lazy(() => named(import("@/features/operations/OperationsPage"), "OperationsPage"))
@@ -97,6 +98,7 @@ function App() {
               <Route path="karigar" element={<KarigarPage />} />
               <Route path="daybook" element={<DayBookPage />} />
               <Route path="reports" element={<ReportsPage />} />
+              <Route path="metal-tally" element={<MetalTallyPage />} />
               <Route path="receipt-designer" element={<ReceiptDesignerPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="help" element={<HelpPage />} />

@@ -43,6 +43,8 @@ interface Row {
   purity: string
   grossWt: number
   stoneWt: number
+  /** Extra fine metal charged as wastage, in % of net weight. */
+  wastagePct: number
   rate: number
   makingPerGm: number
   stoneCost: number
@@ -78,6 +80,7 @@ const newRow = (metal: MetalType = "gold", rate = 0): Row => ({
   purity: "22K",
   grossWt: 0,
   stoneWt: 0,
+  wastagePct: 0,
   rate,
   makingPerGm: 0,
   stoneCost: 0,
@@ -89,9 +92,11 @@ const newRow = (metal: MetalType = "gold", rate = 0): Row => ({
 
 const rowNet = (r: Row) => Math.max(0, round3(r.grossWt - r.stoneWt))
 const rowMaking = (r: Row) => round2(rowNet(r) * r.makingPerGm)
+/** Chargeable fine metal = net × (purity% + wastage%). Rate is applied to this. */
+const rowFine = (r: Row) =>
+  round3(rowNet(r) * ((finePct(r.purity) + Math.max(0, r.wastagePct || 0)) / 100))
 const rowAmount = (r: Row) =>
-  round2(rowNet(r) * r.rate + rowMaking(r) + r.stoneCost + r.otherCharges - r.discount)
-const rowPure = (r: Row) => round3(rowNet(r) * (finePct(r.purity) / 100))
+  round2(rowFine(r) * r.rate + rowMaking(r) + r.stoneCost + r.otherCharges - r.discount)
 
 export function PurchaseFormDialog({
   open,
@@ -149,7 +154,7 @@ export function PurchaseFormDialog({
     const cgst = round2((gross * (gstRate / 2)) / 100)
     const net = round2(gross + cgst * 2)
     const totalNet = round3(rows.reduce((s, r) => s + rowNet(r), 0))
-    const totalPure = round3(rows.reduce((s, r) => s + rowPure(r), 0))
+    const totalPure = round3(rows.reduce((s, r) => s + rowFine(r), 0))
     const totalGrossWt = round3(rows.reduce((s, r) => s + r.grossWt, 0))
     const avgCostPerGram = totalNet > 0 ? round2(gross / totalNet) : 0
     const estSelling = round2(gross * (1 + markup / 100))
@@ -195,11 +200,13 @@ export function PurchaseFormDialog({
       items: items.map((r) => ({
         description: r.description || "Item",
         type: r.type,
+        category: r.category,
         purity: r.purity,
         grossWt: r.grossWt,
         stoneWt: r.stoneWt || undefined,
         netWt: rowNet(r),
-        pureGoldWt: rowPure(r),
+        wastagePct: r.wastagePct || undefined,
+        pureGoldWt: rowFine(r),
         rate: r.rate,
         makingAmount: rowMaking(r),
         stoneCost: r.stoneCost || undefined,
@@ -222,7 +229,9 @@ export function PurchaseFormDialog({
     // separate, best-effort step: one row failing must NOT abort the others or
     // masquerade as a purchase-save failure — otherwise the bill saves while the
     // items silently don't, with a misleading "could not save" error.
-    const stockRows = items.filter((r) => r.addToStock)
+    // Silver is tracked by weight only (never tag-stocked); the purchase already
+    // logged its weight to the metal ledger. Gold/other honour the Stock tick.
+    const stockRows = items.filter((r) => r.addToStock && r.type !== "silver")
     let added = 0
     const failures: string[] = []
     for (const r of stockRows) {
@@ -359,7 +368,7 @@ export function PurchaseFormDialog({
               </div>
             </div>
             <div className="overflow-x-auto rounded-md border">
-              <table className={cn("w-full border-collapse text-sm", advOpen ? "min-w-[1160px]" : "min-w-[820px]")}>
+              <table className={cn("w-full border-collapse text-sm", advOpen ? "min-w-[1320px]" : "min-w-[980px]")}>
                 <thead className="bg-muted/60 text-xs text-muted-foreground">
                   <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:text-left [&>th]:font-medium">
                     <th>Description</th>
@@ -368,7 +377,9 @@ export function PurchaseFormDialog({
                     <th className="w-16 text-right">Gross</th>
                     <th className="w-16 text-right">Stone</th>
                     <th className="w-16 text-right">Net</th>
-                    <th className="w-20 text-right">Rate/g</th>
+                    <th className="w-16 text-right" title="Wastage % of net weight">Wastage%</th>
+                    <th className="w-16 text-right" title="Fine metal = net × (purity% + wastage%)">Fine</th>
+                    <th className="w-20 text-right" title="Rate per fine (pure) gram">Rate/g</th>
                     <th className="w-20 text-right">Making/g</th>
                     {advOpen && <th className="w-20 text-right">Stone ₹</th>}
                     {advOpen && <th className="w-20 text-right">Other ₹</th>}
@@ -413,6 +424,10 @@ export function PurchaseFormDialog({
                       </td>
                       <td className="px-2 text-right tabular text-muted-foreground">{wt(rowNet(r))}</td>
                       <td>
+                        <NumCell value={r.wastagePct} step={0.1} onChange={(v) => update(r.id, { wastagePct: v })} />
+                      </td>
+                      <td className="px-2 text-right tabular text-muted-foreground">{wt(rowFine(r))}</td>
+                      <td>
                         <NumCell value={r.rate} step={1} onChange={(v) => update(r.id, { rate: v })} />
                       </td>
                       <td>
@@ -440,13 +455,17 @@ export function PurchaseFormDialog({
                       )}
                       <td className="px-2 text-right font-medium tabular">{formatAmount(rowAmount(r))}</td>
                       <td className="text-center">
-                        <input
-                          type="checkbox"
-                          checked={r.addToStock}
-                          onChange={(e) => update(r.id, { addToStock: e.target.checked })}
-                          aria-label="Add to stock"
-                          className="size-4 cursor-pointer accent-primary"
-                        />
+                        {r.type === "silver" ? (
+                          <span className="text-[10px] text-muted-foreground" title="Silver is tracked by weight — no barcode tag">By wt</span>
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={r.addToStock}
+                            onChange={(e) => update(r.id, { addToStock: e.target.checked })}
+                            aria-label="Add to stock"
+                            className="size-4 cursor-pointer accent-primary"
+                          />
+                        )}
                       </td>
                       <td>
                         <button
@@ -466,7 +485,7 @@ export function PurchaseFormDialog({
             <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
               <span>Gross <b className="text-foreground">{wt(t.totalGrossWt)} g</b></span>
               <span>Net <b className="text-foreground">{wt(t.totalNet)} g</b></span>
-              <span>Pure gold <b className="text-foreground">{wt(t.totalPure)} g</b></span>
+              <span>Fine metal <b className="text-foreground">{wt(t.totalPure)} g</b></span>
               <span>Avg cost/g <b className="text-foreground">₹{formatAmount(t.avgCostPerGram)}</b></span>
               {markup > 0 && (
                 <span>Est. profit <b className="text-emerald-600">₹{formatAmount(t.estProfit)}</b> · margin {t.margin}%</span>

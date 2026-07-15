@@ -11,7 +11,7 @@ import {
   Plus,
   Search,
   Pencil,
-  Trash2,
+  Ban,
   Building2,
   User,
   Receipt as ReceiptIcon,
@@ -36,6 +36,7 @@ import {
 } from "@/lib/constants"
 import { formatAmount, formatDate, wt } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { can } from "@/lib/permissions"
 import { useSession } from "@/stores/useSession"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
@@ -95,6 +96,8 @@ export function RefiningPage() {
   const inStock = useLiveData(() => itemsService.getInStock(), [], [])
   const history = useLiveData(() => refiningService.getAll(), [], [])
   const refiners = useLiveData(() => refinersService.getAll(), [], [])
+  const blockedRefiners = useLiveData(() => refinersService.getBlocked(), [], [])
+  const [showBlocked, setShowBlocked] = useState(false)
   const user = useSession((s) => s.user)
 
   const [tab, setTab] = useState("refine")
@@ -319,13 +322,29 @@ export function RefiningPage() {
     }
   }, [history])
 
-  const deleteRefiner = async (r: Refiner) => {
+  const canBlock = can(user?.role, "irreversible_stock")
+
+  const blockRefiner = async (r: Refiner) => {
     if (!r.id) return
-    if (user?.role !== "owner") return toast.error("Permanent deletion is reserved for the Owner")
-    const reason = window.prompt(`Reason to permanently delete ${r.name}:`)?.trim()
-    if (!reason || !confirm(`Permanently delete refiner ${r.name}?`)) return
-    await refinersService.remove(r.id, { user: user.name, role: user.role, reason })
-    toast.success(`Deleted ${r.name}`)
+    if (!canBlock) return toast.error("Blocking a refiner is reserved for a Manager or Owner")
+    const reason = window.prompt(`Reason to block ${r.name}:`)?.trim()
+    if (!reason || !confirm(`Block refiner ${r.name}? It will be hidden from the picker and lists but kept for records.`)) return
+    try {
+      await refinersService.block(r.id, { user: user?.name, role: user?.role, reason })
+      toast.success(`Blocked ${r.name}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
+  const unblockRefiner = async (r: Refiner) => {
+    if (!r.id) return
+    try {
+      await refinersService.unblock(r.id, { user: user?.name, role: user?.role })
+      toast.success(`Unblocked ${r.name}`)
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
   }
 
   return (
@@ -767,15 +786,26 @@ export function RefiningPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Refiners
               </span>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setEditRefiner(null)
-                  setRefinerDialogOpen(true)
-                }}
-              >
-                <Plus className="size-4" /> New Refiner
-              </Button>
+              <div className="flex items-center gap-2">
+                {canBlock && blockedRefiners.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant={showBlocked ? "secondary" : "ghost"}
+                    onClick={() => setShowBlocked((v) => !v)}
+                  >
+                    <Ban className="size-4" /> {showBlocked ? "Hide" : "Show"} blocked ({blockedRefiners.length})
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setEditRefiner(null)
+                    setRefinerDialogOpen(true)
+                  }}
+                >
+                  <Plus className="size-4" /> New Refiner
+                </Button>
+              </div>
             </div>
             <Table>
               <TableHeader>
@@ -837,15 +867,41 @@ export function RefiningPage() {
                           variant="ghost"
                           size="icon"
                           className="size-7 text-destructive"
-                          onClick={() => void deleteRefiner(r)}
-                          aria-label="Delete refiner"
+                          onClick={() => void blockRefiner(r)}
+                          aria-label="Block refiner"
+                          title="Block (hide, keep for records)"
                         >
-                          <Trash2 className="size-3.5" />
+                          <Ban className="size-3.5" />
                         </Button>
                       </div>
                     </TableCell>
                   </TableRow>
                 ))}
+                {showBlocked &&
+                  blockedRefiners.map((r) => (
+                    <TableRow key={`blocked-${r.id}`} className="bg-muted/40 text-muted-foreground">
+                      <TableCell className="font-medium line-through">{r.name}</TableCell>
+                      <TableCell>
+                        <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">
+                          <Ban className="size-3" /> Blocked
+                        </span>
+                      </TableCell>
+                      <TableCell>{r.contact ?? "—"}</TableCell>
+                      <TableCell />
+                      <TableCell>
+                        <div className="flex justify-end">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs"
+                            onClick={() => void unblockRefiner(r)}
+                          >
+                            <RotateCcw className="size-3.5" /> Unblock
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
               </TableBody>
             </Table>
           </div>

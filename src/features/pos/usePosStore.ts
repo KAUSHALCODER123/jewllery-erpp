@@ -152,6 +152,8 @@ export const usePosStore = create<PosState>((set) => ({
         rate: it.rate,
         makingPerGm: it.netWt > 0 ? Number((it.makingAmount / it.netWt).toFixed(2)) : 0,
         hsn: it.hsn,
+        metal: it.metal,
+        category: it.category,
       })),
       urd: urd.map((u) => ({
         id: rid(),
@@ -182,6 +184,8 @@ export const usePosStore = create<PosState>((set) => ({
         netWt: item.netWt,
         makingPerGm: item.makingChargePerGm,
         hsn: item.hsn,
+        metal: item.type,
+        category: item.category,
       })
       return { sales: [...s.sales, line] }
     }),
