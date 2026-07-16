@@ -5,7 +5,7 @@ import { itemsService } from "@/services/dbService"
 import type { Item, MetalType } from "@/db/types"
 import { wt, formatAmount } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { METAL_TYPES, CATEGORIES } from "@/lib/constants"
+import { METAL_TYPES, CATEGORIES, PURITY_OPTIONS } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { usePosStore } from "./usePosStore"
-import { lineAmount, lineMakingAmount } from "./calc"
+import { lineAmount, lineMakingAmount, lineNetWt } from "./calc"
 import { NumCell, TextCell } from "./GridCells"
 
 export function SalesGrid() {
@@ -25,6 +25,8 @@ export function SalesGrid() {
   const addSalesLine = usePosStore((s) => s.addSalesLine)
   const updateSalesLine = usePosStore((s) => s.updateSalesLine)
   const removeSalesLine = usePosStore((s) => s.removeSalesLine)
+
+  const hasByWeight = sales.some((l) => l.byWeight)
 
   const [scan, setScan] = useState("")
   const scanRef = useRef<HTMLInputElement>(null)
@@ -177,10 +179,21 @@ export function SalesGrid() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => addSalesLine({ metal: "silver", category: "Other", description: "Silver (by weight)" })}
-          title="Sell silver / small gold by weight — no barcode tag needed"
+          onClick={() =>
+            addSalesLine({
+              byWeight: true,
+              metal: "silver",
+              category: "Other",
+              purity: PURITY_OPTIONS.silver[1] ?? "925 (Sterling)",
+              description: "Silver jewellery",
+              grossWt: 0,
+              lessWt: 0,
+              wastagePct: 0,
+            })
+          }
+          title="Bill silver jewellery / loose gold by weight — gross, less, net, wastage; no barcode tag"
         >
-          <Plus className="size-4" /> Loose (by weight)
+          <Plus className="size-4" /> Silver / by-weight
         </Button>
       </div>
 
@@ -193,7 +206,11 @@ export function SalesGrid() {
               <th>Description</th>
               <th className="w-20">Metal</th>
               <th className="w-24">Category</th>
+              {hasByWeight && <th className="w-24">Purity</th>}
+              {hasByWeight && <th className="w-20 text-right">Gross (g)</th>}
+              {hasByWeight && <th className="w-20 text-right">Less (g)</th>}
               <th className="w-24 text-right">Net Wt (g)</th>
+              {hasByWeight && <th className="w-20 text-right">Wastage%</th>}
               <th className="w-28 text-right">Rate/g</th>
               <th className="w-28 text-right">Making/g</th>
               <th className="w-28 text-right">Making ₹</th>
@@ -251,13 +268,65 @@ export function SalesGrid() {
                     </SelectContent>
                   </Select>
                 </td>
+                {hasByWeight && (
+                  <td>
+                    {l.byWeight ? (
+                      <Select
+                        value={l.purity ?? ""}
+                        onValueChange={(v) => updateSalesLine(l.id, { purity: v })}
+                      >
+                        <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none" aria-label="Purity">
+                          <SelectValue placeholder="—" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(PURITY_OPTIONS[l.metal ?? "silver"] ?? PURITY_OPTIONS.silver).map((p) => (
+                            <SelectOption key={p} value={p}>{p}</SelectOption>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <span className="px-2 text-muted-foreground">—</span>
+                    )}
+                  </td>
+                )}
+                {hasByWeight && (
+                  <td>
+                    {l.byWeight ? (
+                      <NumCell value={l.grossWt ?? 0} onChange={(v) => updateSalesLine(l.id, { grossWt: v })} aria-label="Gross weight" />
+                    ) : (
+                      <span className="block px-2 text-right text-muted-foreground">—</span>
+                    )}
+                  </td>
+                )}
+                {hasByWeight && (
+                  <td>
+                    {l.byWeight ? (
+                      <NumCell value={l.lessWt ?? 0} onChange={(v) => updateSalesLine(l.id, { lessWt: v })} aria-label="Less (stone) weight" />
+                    ) : (
+                      <span className="block px-2 text-right text-muted-foreground">—</span>
+                    )}
+                  </td>
+                )}
                 <td>
-                  <NumCell
-                    value={l.netWt}
-                    onChange={(v) => updateSalesLine(l.id, { netWt: v })}
-                    aria-label="Net weight"
-                  />
+                  {l.byWeight ? (
+                    <span className="block px-2 text-right tabular text-muted-foreground" aria-label="Net weight">{wt(lineNetWt(l))}</span>
+                  ) : (
+                    <NumCell
+                      value={l.netWt}
+                      onChange={(v) => updateSalesLine(l.id, { netWt: v })}
+                      aria-label="Net weight"
+                    />
+                  )}
                 </td>
+                {hasByWeight && (
+                  <td>
+                    {l.byWeight ? (
+                      <NumCell value={l.wastagePct ?? 0} step={0.1} onChange={(v) => updateSalesLine(l.id, { wastagePct: v })} aria-label="Wastage percent" />
+                    ) : (
+                      <span className="block px-2 text-right text-muted-foreground">—</span>
+                    )}
+                  </td>
+                )}
                 <td>
                   <NumCell
                     value={l.rate}
@@ -293,8 +362,8 @@ export function SalesGrid() {
             ))}
             {sales.length === 0 && (
               <tr>
-                <td colSpan={10} className="py-10 text-center text-muted-foreground">
-                  Scan a barcode or add a blank row to start billing.
+                <td colSpan={hasByWeight ? 14 : 10} className="py-10 text-center text-muted-foreground">
+                  Scan a barcode, add a blank row, or add a Silver / by-weight line to start billing.
                 </td>
               </tr>
             )}
@@ -302,13 +371,13 @@ export function SalesGrid() {
           {sales.length > 0 && (
             <tfoot className="sticky bottom-0 bg-card">
               <tr className="border-t-2 font-medium [&>td]:px-2 [&>td]:py-1.5">
-                <td colSpan={4} className="text-muted-foreground">
+                <td colSpan={hasByWeight ? 7 : 4} className="text-muted-foreground">
                   {sales.length} item(s)
                 </td>
                 <td className="text-right tabular">
-                  {wt(sales.reduce((s, l) => s + l.netWt, 0))}
+                  {wt(sales.reduce((s, l) => s + lineNetWt(l), 0))}
                 </td>
-                <td colSpan={2} />
+                <td colSpan={hasByWeight ? 3 : 2} />
                 <td className="text-right text-muted-foreground tabular">
                   {formatAmount(sales.reduce((s, l) => s + lineMakingAmount(l), 0))}
                 </td>

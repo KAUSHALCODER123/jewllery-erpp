@@ -23,6 +23,7 @@ import {
   computeTotals,
   lineAmount,
   lineMakingAmount,
+  lineNetWt,
   urdAmount,
   urdNetWt,
 } from "./calc"
@@ -172,7 +173,7 @@ export function CheckoutPane({
       items: sales.map((l) => ({
         itemId: l.itemId,
         description: l.description || l.tag || "Item",
-        netWt: l.netWt,
+        netWt: lineNetWt(l),
         rate: l.rate,
         makingAmount: lineMakingAmount(l),
         hsn: l.hsn || "7113",

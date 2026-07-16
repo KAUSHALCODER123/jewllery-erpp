@@ -3,6 +3,7 @@ import {
   computeTotals,
   lineAmount,
   lineMakingAmount,
+  lineNetWt,
   urdNetWt,
   urdAmount,
   type SalesLine,
@@ -40,6 +41,27 @@ test.describe("POS line math", () => {
   test("urd net weight applies less %", () => {
     expect(urdNetWt(urd())).toBe(9) // 10 * (1 - 0.10)
     expect(urdAmount(urd())).toBe(45000) // 9 * 5000
+  })
+
+  test("by-weight silver line: net = gross − less, amount = net×rate + making", () => {
+    // Payal: gross 52.30, less 1.30 → net 51.00, rate 85/g, making 8/g, wastage 0
+    const l = sale({ byWeight: true, metal: "silver", netWt: 0, grossWt: 52.3, lessWt: 1.3, rate: 85, makingPerGm: 8, wastagePct: 0 })
+    expect(lineNetWt(l)).toBe(51) // 52.30 − 1.30
+    expect(lineMakingAmount(l)).toBe(408) // 8 × 51
+    expect(lineAmount(l)).toBe(4743) // 51×85 + 408
+  })
+
+  test("by-weight wastage% adds to the chargeable metal weight", () => {
+    // net 100 @ 100/g with 5% wastage, no making → 100×1.05×100 = 10500
+    const l = sale({ byWeight: true, netWt: 0, grossWt: 100, lessWt: 0, rate: 100, makingPerGm: 0, wastagePct: 5 })
+    expect(lineNetWt(l)).toBe(100)
+    expect(lineAmount(l)).toBe(10500)
+  })
+
+  test("tagged/simple line math is unchanged (no byWeight)", () => {
+    const l = sale() // netWt 10, rate 6000, making 500
+    expect(lineNetWt(l)).toBe(10)
+    expect(lineAmount(l)).toBe(65000)
   })
 })
 

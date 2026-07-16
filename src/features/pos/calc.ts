@@ -26,6 +26,16 @@ export interface SalesLine {
   metal?: import("@/db/types").MetalType
   /** Category (Ring, Chain, Nathani…) for the by-category weight tally. */
   category?: string
+  /** By-weight line (silver jewellery / loose gold): net is derived from
+   * grossWt − lessWt, wastage adds to the chargeable metal weight. When set, the
+   * grid shows gross/less/purity/wastage inputs instead of a raw net field. */
+  byWeight?: boolean
+  grossWt?: number
+  /** Stone/other weight deducted from gross to get net. */
+  lessWt?: number
+  /** Extra chargeable metal as % of net weight. */
+  wastagePct?: number
+  purity?: string
 }
 
 export interface UrdLine {
@@ -41,13 +51,26 @@ export interface UrdLine {
 const round = (n: number): number => Number((n || 0).toFixed(2))
 const round3 = (n: number): number => Number((n || 0).toFixed(3))
 
+/** Net weight of a sales line. By-weight lines derive it from gross − less;
+ *  tagged/simple lines carry it directly in netWt. */
+export const lineNetWt = (l: SalesLine): number =>
+  l.byWeight ? round3(Math.max(0, (l.grossWt || 0) - (l.lessWt || 0))) : (l.netWt || 0)
+
 /** Making amount for a sales line = makingPerGm × netWt. */
 export const lineMakingAmount = (l: SalesLine): number =>
-  round(l.makingPerGm * l.netWt)
+  round(l.makingPerGm * lineNetWt(l))
 
-/** Final amount for a sales line = rate × netWt + making. */
-export const lineAmount = (l: SalesLine): number =>
-  round(l.rate * l.netWt + lineMakingAmount(l))
+/**
+ * Final amount for a sales line. Metal value is charged on the net weight plus any
+ * wastage% (by-weight silver/loose lines); making is charged on the net weight.
+ *   amount = net × (1 + wastage%/100) × rate + net × makingPerGm
+ * Tagged/simple lines have no wastage, so this reduces to rate × net + making.
+ */
+export const lineAmount = (l: SalesLine): number => {
+  const net = lineNetWt(l)
+  const chargeableWt = net * (1 + Math.max(0, l.wastagePct || 0) / 100)
+  return round(chargeableWt * l.rate + l.makingPerGm * net)
+}
 
 /** Net weight of an old-gold line after the "less %" deduction. */
 export const urdNetWt = (u: UrdLine): number =>
@@ -105,7 +128,7 @@ export function computeTotals(
   const advanceApplied = Math.max(0, opts.advanceApplied || 0)
 
   const salesTotal = round(sales.reduce((s, l) => s + lineAmount(l), 0))
-  const salesNetWt = round3(sales.reduce((s, l) => s + l.netWt, 0))
+  const salesNetWt = round3(sales.reduce((s, l) => s + lineNetWt(l), 0))
   const urdTotal = round(urd.reduce((s, u) => s + urdAmount(u), 0))
 
   // Taxable = sales − old-gold − discounts. Never below zero.
