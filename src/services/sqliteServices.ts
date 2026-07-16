@@ -405,6 +405,45 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     },
 
     count: () => itemsRepo.count(),
+
+    async goldLooseBalances(): Promise<{ category: string; weight: number }[]> {
+      const rows = await exec.query<{ category: string; w: number }>(
+        "SELECT COALESCE(NULLIF(TRIM(category),''),'Uncategorized') category, SUM(CASE WHEN movement='in' THEN weight ELSE -weight END) w FROM inventory_ledger WHERE metalType='gold' GROUP BY 1",
+      )
+      return rows
+        .map((r) => ({ category: r.category, weight: round3(r.w ?? 0) }))
+        .filter((x) => x.weight > 0.0005)
+        .sort((a, b) => b.weight - a.weight)
+    },
+
+    async tagFromLooseGold(input: {
+      sourceCategory: string
+      pieces: Array<{ tagPrefix?: string; category: string; name?: string; purity: string; grossWt: number; stoneWt?: number; makingChargePerGm?: number; huid?: string }>
+      user?: string
+    }): Promise<{ tags: string[]; totalNet: number }> {
+      const pieces = input.pieces.filter((p) => (p.grossWt || 0) > 0)
+      if (!pieces.length) throw new Error("Add at least one piece to tag")
+      const totalNet = round3(pieces.reduce((s, p) => s + computeNetWt(p.grossWt, p.stoneWt ?? 0), 0))
+      return withTransaction(exec, async () => {
+        const bal = await exec.query<{ w: number }>(
+          "SELECT SUM(CASE WHEN movement='in' THEN weight ELSE -weight END) w FROM inventory_ledger WHERE metalType='gold' AND category=$1",
+          [input.sourceCategory],
+        )
+        const available = round3(bal[0]?.w ?? 0)
+        if (totalNet > available + 0.0005) throw new Error(`Only ${available} g loose gold in "${input.sourceCategory}" — need ${totalNet} g`)
+        const tags: string[] = []
+        const today = todayStr()
+        for (const p of pieces) {
+          const net = computeNetWt(p.grossWt, p.stoneWt ?? 0)
+          const item = await addItemRaw({ name: p.name || p.category, type: "gold", category: p.category, purity: p.purity, grossWt: p.grossWt, stoneWt: p.stoneWt ?? 0, makingChargePerGm: p.makingChargePerGm ?? 0, huid: p.huid, quantity: 1, tagPrefix: p.tagPrefix })
+          await inventoryLedgerRepo.add({ date: today, movement: "out", weight: net, metalType: "gold", category: input.sourceCategory, refType: "tag_from_loose", refId: item.id, refNo: item.tag, description: `Tagged out of loose ${input.sourceCategory}`, createdBy: input.user, createdAt: nowIso() })
+          await inventoryLedgerRepo.add({ itemId: item.id, date: today, movement: "in", weight: net, metalType: "gold", category: p.category, refType: "tag_from_loose", refId: item.id, refNo: item.tag, description: `Tagged ${p.category} ${item.tag}`, createdBy: input.user, createdAt: nowIso() })
+          tags.push(item.tag)
+        }
+        await auditRepo.add({ createdAt: nowIso(), user: input.user, action: "tag_from_loose_gold", entity: "item", reason: `${tags.length} piece(s) · ${totalNet} g from ${input.sourceCategory}`, afterJson: JSON.stringify({ tags, totalNet, sourceCategory: input.sourceCategory }) })
+        return { tags, totalNet }
+      })
+    },
   }
 
   const customersService = {

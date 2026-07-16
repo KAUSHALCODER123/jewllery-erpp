@@ -637,3 +637,55 @@ test("receiptsService.add mints RCP number transactionally", async () => {
   expect(sqls[0]).toBe("BEGIN")
   expect(sqls[sqls.length - 1]).toBe("COMMIT")
 })
+
+/* ---- tag gold from loose weight (buy by weight, tag later) ---- */
+
+test("goldLooseBalances returns only positive gold pools, largest first", async () => {
+  const { exec } = fakeExecutor([
+    { match: /FROM inventory_ledger WHERE metalType='gold' GROUP BY/, rows: [
+      { category: "Bullion", w: 100 }, { category: "Scrap", w: -2 }, { category: "Ring", w: 12.5 },
+    ] },
+  ])
+  const { itemsService } = makeSqliteServices(exec)
+  expect(await itemsService.goldLooseBalances()).toEqual([
+    { category: "Bullion", weight: 100 },
+    { category: "Ring", weight: 12.5 },
+  ])
+})
+
+test("tagFromLooseGold refuses pieces exceeding available loose gold", async () => {
+  const { exec } = fakeExecutor([
+    { match: /WHERE metalType='gold' AND category/, rows: [{ w: 5 }] }, // only 5 g available
+  ])
+  const { itemsService } = makeSqliteServices(exec)
+  await expect(
+    itemsService.tagFromLooseGold({
+      sourceCategory: "Bullion",
+      pieces: [{ category: "Ring", purity: "22K (916)", grossWt: 8, tagPrefix: "RIN" }],
+    }),
+  ).rejects.toThrow(/Only 5 g loose gold/)
+})
+
+test("tagFromLooseGold mints a tag and moves weight loose→category atomically", async () => {
+  const { exec, calls } = fakeExecutor(
+    [
+      { match: /WHERE metalType='gold' AND category/, rows: [{ w: 100 }] },
+      { match: /SELECT value FROM counters/, rows: [{ value: 6 }] },
+    ],
+    42,
+  )
+  const { itemsService } = makeSqliteServices(exec)
+  const res = await itemsService.tagFromLooseGold({
+    sourceCategory: "Bullion",
+    user: "Owner",
+    pieces: [{ category: "Ring", purity: "22K (916)", grossWt: 8.2, stoneWt: 0, makingChargePerGm: 500, tagPrefix: "RIN" }],
+  })
+  expect(res.tags).toEqual(["RIN0007"]) // counter 6 → 7
+  expect(res.totalNet).toBe(8.2)
+  const sqls = sqlList(calls)
+  expect(sqls[0]).toBe("BEGIN")
+  expect(sqls[sqls.length - 1]).toBe("COMMIT")
+  expect(calls.some((c) => /INSERT INTO "items"/.test(c.sql))).toBeTruthy()
+  const ledger = calls.filter((c) => /INSERT INTO "inventory_ledger"/.test(c.sql))
+  expect(ledger.length).toBe(2) // one out of Bullion, one in as Ring
+})

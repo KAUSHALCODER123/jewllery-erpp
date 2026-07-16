@@ -201,6 +201,57 @@ const itemsServiceDexie = {
   },
 
   count: (): Promise<number> => db.items.count(),
+
+  /** Net gold weight per category held loose in the ledger (balance > 0) — the
+   *  pools you can tag pieces out of. */
+  async goldLooseBalances(): Promise<{ category: string; weight: number }[]> {
+    const rows = (await db.inventory_ledger.toArray()).filter((r) => r.metalType === "gold")
+    const m = new Map<string, number>()
+    for (const r of rows) {
+      const c = (r.category && r.category.trim()) || "Uncategorized"
+      m.set(c, (m.get(c) ?? 0) + (r.movement === "in" ? r.weight : -r.weight))
+    }
+    return [...m.entries()]
+      .map(([category, weight]) => ({ category, weight: round3(weight) }))
+      .filter((x) => x.weight > 0.0005)
+      .sort((a, b) => b.weight - a.weight)
+  },
+
+  /**
+   * Tag finished pieces out of a loose gold pool ("buy by weight, tag later").
+   * Mints a barcode per piece and moves its net weight in the ledger from the
+   * source (loose) category into the piece's own category — so total gold is
+   * unchanged, the loose pool shrinks, and the metal tally reclassifies
+   * Bullion → Ring/Chain/etc. Atomic; refuses if pieces exceed available loose weight.
+   */
+  async tagFromLooseGold(input: {
+    sourceCategory: string
+    pieces: Array<{ tagPrefix?: string; category: string; name?: string; purity: string; grossWt: number; stoneWt?: number; makingChargePerGm?: number; huid?: string }>
+    user?: string
+  }): Promise<{ tags: string[]; totalNet: number }> {
+    const pieces = input.pieces.filter((p) => (p.grossWt || 0) > 0)
+    if (!pieces.length) throw new Error("Add at least one piece to tag")
+    const totalNet = round3(pieces.reduce((s, p) => s + computeNetWt(p.grossWt, p.stoneWt ?? 0), 0))
+    return db.transaction("rw", [db.items, db.counters, db.inventory_ledger, db.audit_log], async () => {
+      const rows = (await db.inventory_ledger.toArray()).filter((r) => r.metalType === "gold" && r.category === input.sourceCategory)
+      const available = round3(rows.reduce((s, r) => s + (r.movement === "in" ? r.weight : -r.weight), 0))
+      if (totalNet > available + 0.0005) throw new Error(`Only ${available} g loose gold in "${input.sourceCategory}" — need ${totalNet} g`)
+      const tags: string[] = []
+      const today = todayStr()
+      for (const p of pieces) {
+        const net = computeNetWt(p.grossWt, p.stoneWt ?? 0)
+        const prefix = p.tagPrefix ?? "ITM"
+        const { code: tag } = await nextSequence(`item:${prefix}`, { prefix })
+        const rec: Item = { tag, name: p.name || p.category, type: "gold", category: p.category, purity: p.purity, grossWt: p.grossWt, stoneWt: p.stoneWt ?? 0, netWt: net, makingChargePerGm: p.makingChargePerGm ?? 0, huid: p.huid, status: "in_stock", quantity: 1, createdAt: nowIso(), updatedAt: nowIso() }
+        const id = await db.items.add(rec)
+        await db.inventory_ledger.add({ date: today, movement: "out", weight: net, metalType: "gold", category: input.sourceCategory, refType: "tag_from_loose", refId: id, refNo: tag, description: `Tagged out of loose ${input.sourceCategory}`, createdBy: input.user, createdAt: nowIso() })
+        await db.inventory_ledger.add({ itemId: id, date: today, movement: "in", weight: net, metalType: "gold", category: p.category, refType: "tag_from_loose", refId: id, refNo: tag, description: `Tagged ${p.category} ${tag}`, createdBy: input.user, createdAt: nowIso() })
+        tags.push(tag)
+      }
+      await db.audit_log.add({ createdAt: nowIso(), user: input.user, action: "tag_from_loose_gold", entity: "item", reason: `${tags.length} piece(s) · ${totalNet} g from ${input.sourceCategory}`, afterJson: JSON.stringify({ tags, totalNet, sourceCategory: input.sourceCategory }) })
+      return { tags, totalNet }
+    })
+  },
 }
 
 /* ------------------------------------------------------------------ */

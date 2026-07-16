@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Barcode as BarcodeIcon,
   FileSpreadsheet,
+  Scale,
 } from "lucide-react"
 import { toast } from "sonner"
 import type { Item } from "@/db/types"
@@ -44,6 +45,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ItemFormDialog } from "./ItemFormDialog"
 import { BarcodeLabels } from "./BarcodeLabels"
+import { TagFromLooseDialog } from "./TagFromLooseDialog"
 import { useSession } from "@/stores/useSession"
 
 export function InventoryPage() {
@@ -53,6 +55,7 @@ export function InventoryPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editItem, setEditItem] = useState<Item | null>(null)
   const [labelItems, setLabelItems] = useState<Item[] | null>(null)
+  const [tagLooseOpen, setTagLooseOpen] = useState(false)
 
   const items = useLiveData(() => itemsService.getAll(), [], undefined)
 
@@ -134,6 +137,9 @@ export function InventoryPage() {
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={exportExcel}>
               <FileSpreadsheet className="size-4" /> Excel
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setTagLooseOpen(true)} title="Tag finished pieces out of bulk/loose gold">
+              <Scale className="size-4" /> Tag From Weight
             </Button>
             <Button size="sm" onClick={openCreate}>
               <Plus className="size-4" /> New Item
@@ -280,6 +286,11 @@ export function InventoryPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         editItem={editItem}
+      />
+      <TagFromLooseDialog
+        open={tagLooseOpen}
+        onOpenChange={setTagLooseOpen}
+        onTagged={(created) => created.length && setLabelItems(created)}
       />
       {labelItems && (
         <BarcodeLabels items={labelItems} onClose={() => setLabelItems(null)} />
