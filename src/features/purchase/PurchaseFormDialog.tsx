@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils"
 import { CATEGORIES, categoryByLabel, PURCHASE_TYPES } from "@/lib/constants"
 import { GST_RATES } from "@/features/pos/calc"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -119,6 +120,7 @@ export function PurchaseFormDialog({
   const [markup, setMarkup] = useState(0)
   const [advOpen, setAdvOpen] = useState(false)
   const [supOpen, setSupOpen] = useState(false)
+  const [metalTab, setMetalTab] = useState<"gold" | "silver">("gold")
 
   useEffect(() => {
     if (!open) return
@@ -133,21 +135,29 @@ export function PurchaseFormDialog({
     setAmountPaid(0)
     setMarkup(0)
     setAdvOpen(false)
+    setMetalTab("gold")
   }, [open])
+
+  // Rows are one purchase, split across Gold/Silver tabs for entry.
+  const addRow = () =>
+    setRows((rs) => [
+      ...rs,
+      metalTab === "silver"
+        ? { ...newRow("silver", 0), category: "Silver Utensil", purity: "999 (Fine)", addToStock: false }
+        : newRow("gold", goldRate),
+    ])
 
   const update = (id: string, patch: Partial<Row>) =>
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)))
 
-  const onType = (v: string) => {
-    setPurchaseType(v)
-    const metal = PURCHASE_TYPES.find((t) => t.value === v)?.metal ?? "gold"
-    setRows((rs) => rs.map((r) => ({ ...r, type: metal })))
-  }
+  // Purchase type is a label on the invoice; row metal is driven by the Gold/Silver
+  // tab, so changing type no longer rewrites the rows' metal.
+  const onType = (v: string) => setPurchaseType(v)
   const onGoldRate = (v: number) => {
     setGoldRate(v)
     setRows((rs) => rs.map((r) => ({ ...r, rate: r.rate === goldRate || r.rate === 0 ? v : r.rate })))
   }
-  const metalForNew = PURCHASE_TYPES.find((t) => t.value === purchaseType)?.metal ?? "gold"
+  const visibleRows = rows.filter((r) => (metalTab === "silver" ? r.type === "silver" : r.type !== "silver"))
 
   const t = useMemo(() => {
     const gross = round2(rows.reduce((s, r) => s + rowAmount(r), 0))
@@ -352,7 +362,16 @@ export function PurchaseFormDialog({
           {/* Items grid */}
           <div>
             <div className="mb-1 flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground">Items</Label>
+              <Tabs value={metalTab} onValueChange={(v) => setMetalTab(v as "gold" | "silver")}>
+                <TabsList>
+                  <TabsTrigger value="gold">
+                    Gold {rows.filter((r) => r.type !== "silver").length > 0 && <span className="ml-1.5 rounded bg-primary/15 px-1 text-[10px] text-primary">{rows.filter((r) => r.type !== "silver").length}</span>}
+                  </TabsTrigger>
+                  <TabsTrigger value="silver">
+                    Silver {rows.filter((r) => r.type === "silver").length > 0 && <span className="ml-1.5 rounded bg-secondary/20 px-1 text-[10px] text-secondary">{rows.filter((r) => r.type === "silver").length}</span>}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -362,8 +381,8 @@ export function PurchaseFormDialog({
                   {advOpen ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
                   Advanced
                 </button>
-                <Button variant="ghost" size="sm" onClick={() => setRows((rs) => [...rs, newRow(metalForNew, goldRate)])}>
-                  <Plus className="size-4" /> Row
+                <Button variant="ghost" size="sm" onClick={addRow}>
+                  <Plus className="size-4" /> {metalTab === "silver" ? "Silver" : "Gold"} Row
                 </Button>
               </div>
             </div>
@@ -391,7 +410,15 @@ export function PurchaseFormDialog({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {visibleRows.length === 0 && (
+                    <tr>
+                      <td colSpan={20} className="py-6 text-center text-muted-foreground">
+                        No {metalTab} rows yet — click "{metalTab === "silver" ? "Silver" : "Gold"} Row".
+                        {metalTab === "silver" && " Silver is tracked by weight (no barcode tag)."}
+                      </td>
+                    </tr>
+                  )}
+                  {visibleRows.map((r) => (
                     <tr key={r.id} className="border-t [&>td]:px-1 [&>td]:py-0.5">
                       <td>
                         <TextCell value={r.description} onChange={(v) => update(r.id, { description: v })} placeholder="e.g. Gold ring" />

@@ -2,12 +2,13 @@ import { useRef, useState, useEffect, type KeyboardEvent as ReactKeyboardEvent }
 import { Barcode, Plus, Trash2, Search } from "lucide-react"
 import { toast } from "sonner"
 import { itemsService } from "@/services/dbService"
-import type { Item, MetalType } from "@/db/types"
+import type { Item } from "@/db/types"
 import { wt, formatAmount } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { METAL_TYPES, CATEGORIES, PURITY_OPTIONS } from "@/lib/constants"
+import { CATEGORIES, PURITY_OPTIONS } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
   SelectContent,
@@ -16,22 +17,54 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { usePosStore } from "./usePosStore"
-import { lineAmount, lineMakingAmount, lineNetWt } from "./calc"
+import { lineAmount, lineMakingAmount, lineNetWt, type SalesLine } from "./calc"
 import { NumCell, TextCell } from "./GridCells"
 
+/**
+ * Sales entry, split into Gold (tagged, per-piece) and Silver (by-weight) tabs —
+ * different flows, but both add lines to the SAME invoice (checkout sums all).
+ */
 export function SalesGrid() {
   const sales = usePosStore((s) => s.sales)
+  const [tab, setTab] = useState<"gold" | "silver">("gold")
+
+  const goldLines = sales.filter((l) => (l.metal ?? "gold") !== "silver")
+  const silverLines = sales.filter((l) => l.metal === "silver")
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-3 py-2">
+        <Tabs value={tab} onValueChange={(v) => setTab(v as "gold" | "silver")}>
+          <TabsList>
+            <TabsTrigger value="gold">
+              Gold {goldLines.length > 0 && <Count n={goldLines.length} />}
+            </TabsTrigger>
+            <TabsTrigger value="silver">
+              Silver {silverLines.length > 0 && <Count n={silverLines.length} />}
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+      {tab === "gold" ? <GoldTab lines={goldLines} /> : <SilverTab lines={silverLines} />}
+    </div>
+  )
+}
+
+function Count({ n }: { n: number }) {
+  return <span className="ml-1.5 rounded bg-primary/15 px-1 text-[10px] text-primary">{n}</span>
+}
+
+/* ------------------------------- Gold tab -------------------------------- */
+/* Tagged, per-piece: scan a barcode / search stock, or add an untagged row.   */
+
+function GoldTab({ lines }: { lines: SalesLine[] }) {
   const addFromItem = usePosStore((s) => s.addFromItem)
   const addSalesLine = usePosStore((s) => s.addSalesLine)
   const updateSalesLine = usePosStore((s) => s.updateSalesLine)
   const removeSalesLine = usePosStore((s) => s.removeSalesLine)
 
-  const hasByWeight = sales.some((l) => l.byWeight)
-
   const [scan, setScan] = useState("")
   const scanRef = useRef<HTMLInputElement>(null)
-
-  // Search-and-pick: find in-stock items by name / tag / HUID (no exact barcode needed).
   const [query, setQuery] = useState("")
   const [matches, setMatches] = useState<Item[]>([])
   const [active, setActive] = useState(0)
@@ -78,7 +111,6 @@ export function SalesGrid() {
 
   useEffect(() => {
     scanRef.current?.focus()
-
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "F10") {
         e.preventDefault()
@@ -97,19 +129,17 @@ export function SalesGrid() {
       toast.error(`No item with tag ${tag}`)
       return
     }
-    if (item.status === "sold") {
-      toast.warning(`${tag} is marked sold — adding anyway`)
-    }
+    if (item.status === "sold") toast.warning(`${tag} is marked sold — adding anyway`)
     addFromItem(item)
     setScan("")
     scanRef.current?.focus()
   }
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Barcode scan bar */}
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Scan / search bar */}
       <div className="flex items-center gap-2 border-b px-3 py-2">
-        <div className="relative w-72">
+        <div className="relative w-64">
           <Barcode className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             ref={scanRef}
@@ -121,7 +151,7 @@ export function SalesGrid() {
                 void handleScan()
               }
             }}
-            placeholder="Scan / type barcode tag, press Enter…"
+            placeholder="Scan / type barcode tag, Enter…"
             aria-label="Barcode scan"
             className="pl-8 uppercase"
             autoFocus
@@ -130,7 +160,7 @@ export function SalesGrid() {
         <Button variant="outline" size="sm" onClick={() => void handleScan()}>
           Add
         </Button>
-        <div className="relative w-72">
+        <div className="relative w-64">
           <Search className="absolute left-2 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={query}
@@ -172,28 +202,9 @@ export function SalesGrid() {
           variant="ghost"
           size="sm"
           onClick={() => addSalesLine({ metal: "gold", category: "Other" })}
-          title="Add a blank line for an untagged item"
+          title="Add a blank line for an untagged gold item"
         >
           <Plus className="size-4" /> Blank row
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() =>
-            addSalesLine({
-              byWeight: true,
-              metal: "silver",
-              category: "Other",
-              purity: PURITY_OPTIONS.silver[1] ?? "925 (Sterling)",
-              description: "Silver jewellery",
-              grossWt: 0,
-              lessWt: 0,
-              wastagePct: 0,
-            })
-          }
-          title="Bill silver jewellery / loose gold by weight — gross, less, net, wastage; no barcode tag"
-        >
-          <Plus className="size-4" /> Silver / by-weight
         </Button>
       </div>
 
@@ -204,13 +215,8 @@ export function SalesGrid() {
             <tr className="[&>th]:px-2 [&>th]:py-1.5 [&>th]:text-left [&>th]:font-medium">
               <th className="w-24">Tag</th>
               <th>Description</th>
-              <th className="w-20">Metal</th>
               <th className="w-24">Category</th>
-              {hasByWeight && <th className="w-24">Purity</th>}
-              {hasByWeight && <th className="w-20 text-right">Gross (g)</th>}
-              {hasByWeight && <th className="w-20 text-right">Less (g)</th>}
               <th className="w-24 text-right">Net Wt (g)</th>
-              {hasByWeight && <th className="w-20 text-right">Wastage%</th>}
               <th className="w-28 text-right">Rate/g</th>
               <th className="w-28 text-right">Making/g</th>
               <th className="w-28 text-right">Making ₹</th>
@@ -219,171 +225,174 @@ export function SalesGrid() {
             </tr>
           </thead>
           <tbody>
-            {sales.map((l) => (
+            {lines.map((l) => (
               <tr key={l.id} className="border-b [&>td]:px-1 [&>td]:py-0.5 hover:bg-accent/20">
                 <td className="font-medium">
-                  <TextCell
-                    value={l.tag}
-                    onChange={(v) => updateSalesLine(l.id, { tag: v.toUpperCase() })}
-                    placeholder="—"
-                    aria-label="Tag"
-                  />
+                  <TextCell value={l.tag} onChange={(v) => updateSalesLine(l.id, { tag: v.toUpperCase() })} placeholder="—" aria-label="Tag" />
                 </td>
                 <td>
-                  <TextCell
-                    value={l.description}
-                    onChange={(v) => updateSalesLine(l.id, { description: v })}
-                    placeholder="Item description"
-                    aria-label="Description"
-                  />
+                  <TextCell value={l.description} onChange={(v) => updateSalesLine(l.id, { description: v })} placeholder="Item description" aria-label="Description" />
                 </td>
                 <td>
-                  <Select
-                    value={l.metal ?? "gold"}
-                    onValueChange={(v) => updateSalesLine(l.id, { metal: v as MetalType })}
-                  >
-                    <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none" aria-label="Metal">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {METAL_TYPES.map((m) => (
-                        <SelectOption key={m.value} value={m.value}>{m.label}</SelectOption>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </td>
-                <td>
-                  <Select
-                    value={l.category ?? "Other"}
-                    onValueChange={(v) => updateSalesLine(l.id, { category: v })}
-                  >
+                  <Select value={l.category ?? "Other"} onValueChange={(v) => updateSalesLine(l.id, { category: v })}>
                     <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none" aria-label="Category">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {CATEGORIES.map((c) => (
+                      {CATEGORIES.filter((c) => c.defaultType === "gold").map((c) => (
                         <SelectOption key={c.prefix} value={c.label}>{c.label}</SelectOption>
                       ))}
                       <SelectOption value="Nathani">Nathani</SelectOption>
+                      <SelectOption value="Other">Other</SelectOption>
                     </SelectContent>
                   </Select>
                 </td>
-                {hasByWeight && (
-                  <td>
-                    {l.byWeight ? (
-                      <Select
-                        value={l.purity ?? ""}
-                        onValueChange={(v) => updateSalesLine(l.id, { purity: v })}
-                      >
-                        <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none" aria-label="Purity">
-                          <SelectValue placeholder="—" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {(PURITY_OPTIONS[l.metal ?? "silver"] ?? PURITY_OPTIONS.silver).map((p) => (
-                            <SelectOption key={p} value={p}>{p}</SelectOption>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    ) : (
-                      <span className="px-2 text-muted-foreground">—</span>
-                    )}
-                  </td>
-                )}
-                {hasByWeight && (
-                  <td>
-                    {l.byWeight ? (
-                      <NumCell value={l.grossWt ?? 0} onChange={(v) => updateSalesLine(l.id, { grossWt: v })} aria-label="Gross weight" />
-                    ) : (
-                      <span className="block px-2 text-right text-muted-foreground">—</span>
-                    )}
-                  </td>
-                )}
-                {hasByWeight && (
-                  <td>
-                    {l.byWeight ? (
-                      <NumCell value={l.lessWt ?? 0} onChange={(v) => updateSalesLine(l.id, { lessWt: v })} aria-label="Less (stone) weight" />
-                    ) : (
-                      <span className="block px-2 text-right text-muted-foreground">—</span>
-                    )}
-                  </td>
-                )}
                 <td>
-                  {l.byWeight ? (
-                    <span className="block px-2 text-right tabular text-muted-foreground" aria-label="Net weight">{wt(lineNetWt(l))}</span>
-                  ) : (
-                    <NumCell
-                      value={l.netWt}
-                      onChange={(v) => updateSalesLine(l.id, { netWt: v })}
-                      aria-label="Net weight"
-                    />
-                  )}
-                </td>
-                {hasByWeight && (
-                  <td>
-                    {l.byWeight ? (
-                      <NumCell value={l.wastagePct ?? 0} step={0.1} onChange={(v) => updateSalesLine(l.id, { wastagePct: v })} aria-label="Wastage percent" />
-                    ) : (
-                      <span className="block px-2 text-right text-muted-foreground">—</span>
-                    )}
-                  </td>
-                )}
-                <td>
-                  <NumCell
-                    value={l.rate}
-                    step={1}
-                    onChange={(v) => updateSalesLine(l.id, { rate: v })}
-                    aria-label="Rate per gram"
-                  />
+                  <NumCell value={l.netWt} onChange={(v) => updateSalesLine(l.id, { netWt: v })} aria-label="Net weight" />
                 </td>
                 <td>
-                  <NumCell
-                    value={l.makingPerGm}
-                    step={1}
-                    onChange={(v) => updateSalesLine(l.id, { makingPerGm: v })}
-                    aria-label="Making per gram"
-                  />
-                </td>
-                <td className="px-2 text-right text-muted-foreground tabular">
-                  {formatAmount(lineMakingAmount(l))}
-                </td>
-                <td className="px-2 text-right font-medium tabular">
-                  {formatAmount(lineAmount(l))}
+                  <NumCell value={l.rate} step={1} onChange={(v) => updateSalesLine(l.id, { rate: v })} aria-label="Rate per gram" />
                 </td>
                 <td>
-                  <button
-                    onClick={() => removeSalesLine(l.id)}
-                    className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                    aria-label="Remove line"
-                  >
+                  <NumCell value={l.makingPerGm} step={1} onChange={(v) => updateSalesLine(l.id, { makingPerGm: v })} aria-label="Making per gram" />
+                </td>
+                <td className="px-2 text-right text-muted-foreground tabular">{formatAmount(lineMakingAmount(l))}</td>
+                <td className="px-2 text-right font-medium tabular">{formatAmount(lineAmount(l))}</td>
+                <td>
+                  <button onClick={() => removeSalesLine(l.id)} className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label="Remove line">
                     <Trash2 className="size-3.5" />
                   </button>
                 </td>
               </tr>
             ))}
-            {sales.length === 0 && (
+            {lines.length === 0 && (
               <tr>
-                <td colSpan={hasByWeight ? 14 : 10} className="py-10 text-center text-muted-foreground">
-                  Scan a barcode, add a blank row, or add a Silver / by-weight line to start billing.
+                <td colSpan={9} className="py-10 text-center text-muted-foreground">
+                  Scan a gold barcode or add a blank row.
                 </td>
               </tr>
             )}
           </tbody>
-          {sales.length > 0 && (
+          {lines.length > 0 && (
             <tfoot className="sticky bottom-0 bg-card">
               <tr className="border-t-2 font-medium [&>td]:px-2 [&>td]:py-1.5">
-                <td colSpan={hasByWeight ? 7 : 4} className="text-muted-foreground">
-                  {sales.length} item(s)
+                <td colSpan={3} className="text-muted-foreground">{lines.length} gold item(s)</td>
+                <td className="text-right tabular">{wt(lines.reduce((s, l) => s + lineNetWt(l), 0))}</td>
+                <td colSpan={2} />
+                <td className="text-right text-muted-foreground tabular">{formatAmount(lines.reduce((s, l) => s + lineMakingAmount(l), 0))}</td>
+                <td className="text-right tabular">{formatAmount(lines.reduce((s, l) => s + lineAmount(l), 0))}</td>
+                <td />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/* ------------------------------ Silver tab ------------------------------- */
+/* By-weight, no barcode: gross → less → net, purity, wastage, rate, making.   */
+
+function SilverTab({ lines }: { lines: SalesLine[] }) {
+  const addSalesLine = usePosStore((s) => s.addSalesLine)
+  const updateSalesLine = usePosStore((s) => s.updateSalesLine)
+  const removeSalesLine = usePosStore((s) => s.removeSalesLine)
+
+  const addSilver = () =>
+    addSalesLine({
+      byWeight: true,
+      metal: "silver",
+      category: "Other",
+      purity: PURITY_OPTIONS.silver[1] ?? "925 (Sterling)",
+      description: "Silver jewellery",
+      grossWt: 0,
+      lessWt: 0,
+      wastagePct: 0,
+    })
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <Button size="sm" onClick={addSilver}>
+          <Plus className="size-4" /> Add silver piece
+        </Button>
+        <span className="text-xs text-muted-foreground">Sold by weight — no barcode tag needed.</span>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full min-w-[840px] border-collapse text-sm">
+          <thead className="sticky top-0 z-10 bg-muted/60 text-xs text-muted-foreground">
+            <tr className="[&>th]:px-2 [&>th]:py-1.5 [&>th]:text-left [&>th]:font-medium">
+              <th>Description</th>
+              <th className="w-28">Purity</th>
+              <th className="w-20 text-right">Gross (g)</th>
+              <th className="w-20 text-right">Less (g)</th>
+              <th className="w-20 text-right">Net (g)</th>
+              <th className="w-20 text-right">Wastage%</th>
+              <th className="w-24 text-right">Rate/g</th>
+              <th className="w-24 text-right">Making/g</th>
+              <th className="w-28 text-right">Amount ₹</th>
+              <th className="w-8" />
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l) => (
+              <tr key={l.id} className="border-b [&>td]:px-1 [&>td]:py-0.5 hover:bg-accent/20">
+                <td>
+                  <TextCell value={l.description} onChange={(v) => updateSalesLine(l.id, { description: v })} placeholder="e.g. Payal" aria-label="Description" />
                 </td>
-                <td className="text-right tabular">
-                  {wt(sales.reduce((s, l) => s + lineNetWt(l), 0))}
+                <td>
+                  <Select value={l.purity ?? ""} onValueChange={(v) => updateSalesLine(l.id, { purity: v })}>
+                    <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none" aria-label="Purity">
+                      <SelectValue placeholder="—" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PURITY_OPTIONS.silver.map((p) => (
+                        <SelectOption key={p} value={p}>{p}</SelectOption>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </td>
-                <td colSpan={hasByWeight ? 3 : 2} />
-                <td className="text-right text-muted-foreground tabular">
-                  {formatAmount(sales.reduce((s, l) => s + lineMakingAmount(l), 0))}
+                <td>
+                  <NumCell value={l.grossWt ?? 0} onChange={(v) => updateSalesLine(l.id, { grossWt: v })} aria-label="Gross weight" />
                 </td>
-                <td className="text-right tabular">
-                  {formatAmount(sales.reduce((s, l) => s + lineAmount(l), 0))}
+                <td>
+                  <NumCell value={l.lessWt ?? 0} onChange={(v) => updateSalesLine(l.id, { lessWt: v })} aria-label="Less weight" />
                 </td>
+                <td className="px-2 text-right tabular text-muted-foreground">{wt(lineNetWt(l))}</td>
+                <td>
+                  <NumCell value={l.wastagePct ?? 0} step={0.1} onChange={(v) => updateSalesLine(l.id, { wastagePct: v })} aria-label="Wastage percent" />
+                </td>
+                <td>
+                  <NumCell value={l.rate} step={1} onChange={(v) => updateSalesLine(l.id, { rate: v })} aria-label="Rate per gram" />
+                </td>
+                <td>
+                  <NumCell value={l.makingPerGm} step={1} onChange={(v) => updateSalesLine(l.id, { makingPerGm: v })} aria-label="Making per gram" />
+                </td>
+                <td className="px-2 text-right font-medium tabular">{formatAmount(lineAmount(l))}</td>
+                <td>
+                  <button onClick={() => removeSalesLine(l.id)} className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label="Remove line">
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {lines.length === 0 && (
+              <tr>
+                <td colSpan={10} className="py-10 text-center text-muted-foreground">
+                  Add a silver piece to bill it by weight.
+                </td>
+              </tr>
+            )}
+          </tbody>
+          {lines.length > 0 && (
+            <tfoot className="sticky bottom-0 bg-card">
+              <tr className="border-t-2 font-medium [&>td]:px-2 [&>td]:py-1.5">
+                <td colSpan={4} className="text-muted-foreground">{lines.length} silver piece(s)</td>
+                <td className="text-right tabular">{wt(lines.reduce((s, l) => s + lineNetWt(l), 0))}</td>
+                <td colSpan={3} />
+                <td className="text-right tabular">{formatAmount(lines.reduce((s, l) => s + lineAmount(l), 0))}</td>
                 <td />
               </tr>
             </tfoot>
