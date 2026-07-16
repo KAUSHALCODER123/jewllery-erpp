@@ -439,6 +439,11 @@ export interface PurchaseInvoice {
   paymentMode?: PaymentMode
   /** Day's gold rate the lines were priced at (₹/g). */
   goldRate?: number
+  /** Metal-to-metal settlement: ₹ value of old scrap handed to the supplier as
+   * part-payment (credited against netAmount before cash). */
+  materialOutValue?: number
+  /** Fine (pure) grams of scrap handed over — netted against the lot's fine weight. */
+  materialOutFineWt?: number
   notes?: string
   createdAt?: string
 }
@@ -470,6 +475,22 @@ export interface PurchaseItem {
   huid?: string
   hallmark?: string
   /** rate × netWt + making + stone + other − discount (line total before tax). */
+  amount: number
+}
+
+/** One line of metal handed to a supplier as part-payment on a purchase
+ * (metal-to-metal settlement). Valued by its fine weight × rate. */
+export interface PurchaseMaterialOut {
+  description: string
+  type: MetalType
+  grossWt: number
+  lessWt?: number
+  netWt: number
+  purity: string
+  /** netWt × purity% — the pure metal handed over. */
+  fineWt: number
+  rate: number
+  /** fineWt × rate — the ₹ value credited to the supplier. */
   amount: number
 }
 

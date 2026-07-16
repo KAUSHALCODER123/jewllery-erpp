@@ -317,6 +317,8 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
   purchaseType     TEXT,
   paymentMode      TEXT,
   goldRate         REAL,
+  materialOutValue REAL,
+  materialOutFineWt REAL,
   notes            TEXT,
   createdAt        TEXT
 );

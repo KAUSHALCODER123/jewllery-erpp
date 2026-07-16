@@ -417,6 +417,21 @@ test("purchase.create mints a number and inserts header + lines atomically", asy
   expect(sqls.some((s) => s.includes('INSERT INTO "purchase_items"'))).toBeTruthy()
 })
 
+test("purchase.create logs Material Out scrap as a metal ledger OUT (metal-to-metal)", async () => {
+  const { exec, calls } = fakeExecutor([{ match: /SELECT value FROM counters/, rows: [{ value: 0 }] }], 12)
+  const { purchaseService } = makeSqliteServices(exec)
+  await purchaseService.create({
+    invoice: { supplierId: 1, date: "2026-07-16", totalGrossAmount: 100000, cgst: 0, sgst: 0, netAmount: 100000, materialOutValue: 40000, materialOutFineWt: 366.4, amountPaid: 60000, balance: 0 },
+    items: [{ description: "Raw gold", type: "gold", purity: "24K", grossWt: 500, netWt: 500, rate: 200, makingAmount: 0, amount: 100000 }],
+    materialOut: [{ description: "Old scrap", type: "gold", grossWt: 400, netWt: 400, purity: "22K (916)", fineWt: 366.4, rate: 100, amount: 36640 }],
+  } as never)
+  // the scrap becomes an inventory_ledger OUT row with refType material_out
+  const ledgerInserts = calls.filter((c) => /INSERT INTO "inventory_ledger"/.test(c.sql))
+  expect(ledgerInserts.length).toBe(2) // purchase IN + material OUT
+  expect(ledgerInserts.some((c) => c.params.includes("material_out"))).toBeTruthy()
+  expect(ledgerInserts.some((c) => c.params.includes("out"))).toBeTruthy()
+})
+
 test("salesService.getFull returns header + lines + urd (or null)", async () => {
   const { exec } = fakeExecutor([
     { match: /FROM "sales_invoices" WHERE "id"/, rows: [{ id: 5, invoiceNo: "INV5" }] },

@@ -997,6 +997,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
         const purchaseId = created.id
         for (const li of draft.items) await purchaseItemsRepo.add({ ...li, purchaseId } as never)
         for(const li of draft.items)await inventoryLedgerRepo.add({date:header.date,movement:"in",weight:li.netWt,metalType:li.type,category:li.category,value:li.amount,refType:"purchase",refId:purchaseId,refNo:purchaseNo,description:`${li.description} · ${li.purity}`,createdAt:nowIso()})
+        for(const m of draft.materialOut ?? [])await inventoryLedgerRepo.add({date:header.date,movement:"out",weight:m.netWt,metalType:m.type,category:"Material Out (scrap)",value:m.amount,refType:"material_out",refId:purchaseId,refNo:purchaseNo,description:`Scrap to supplier — ${m.description}`,createdAt:nowIso()})
         return { ...header, id: purchaseId } as PurchaseInvoice
       })
     },

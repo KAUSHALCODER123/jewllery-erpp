@@ -12,7 +12,7 @@ import {
 import type { PurchaseDraft } from "@/services/dbService"
 import { formatAmount, wt } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { CATEGORIES, categoryByLabel, PURCHASE_TYPES } from "@/lib/constants"
+import { CATEGORIES, categoryByLabel, PURCHASE_TYPES, PURITY_OPTIONS, METAL_TYPES } from "@/lib/constants"
 import { GST_RATES } from "@/features/pos/calc"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -99,6 +99,21 @@ const rowFine = (r: Row) =>
 const rowAmount = (r: Row) =>
   round2(rowFine(r) * r.rate + rowMaking(r) + r.stoneCost + r.otherCharges - r.discount)
 
+/** A "Material Out" line — old scrap handed to the supplier as part-payment. */
+interface MORow {
+  id: string
+  description: string
+  type: MetalType
+  grossWt: number
+  lessWt: number
+  purity: string
+  rate: number
+}
+const newMO = (): MORow => ({ id: rid(), description: "", type: "gold", grossWt: 0, lessWt: 0, purity: "22K (916)", rate: 0 })
+const moNet = (r: MORow) => Math.max(0, round3(r.grossWt - r.lessWt))
+const moFine = (r: MORow) => round3((moNet(r) * finePct(r.purity)) / 100)
+const moAmount = (r: MORow) => round2(moFine(r) * r.rate)
+
 export function PurchaseFormDialog({
   open,
   onOpenChange,
@@ -121,6 +136,7 @@ export function PurchaseFormDialog({
   const [advOpen, setAdvOpen] = useState(false)
   const [supOpen, setSupOpen] = useState(false)
   const [metalTab, setMetalTab] = useState<"gold" | "silver">("gold")
+  const [materialOut, setMaterialOut] = useState<MORow[]>([])
 
   useEffect(() => {
     if (!open) return
@@ -136,7 +152,11 @@ export function PurchaseFormDialog({
     setMarkup(0)
     setAdvOpen(false)
     setMetalTab("gold")
+    setMaterialOut([])
   }, [open])
+
+  const updateMO = (id: string, patch: Partial<MORow>) =>
+    setMaterialOut((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)))
 
   // Rows are one purchase, split across Gold/Silver tabs for entry.
   const addRow = () =>
@@ -173,7 +193,13 @@ export function PurchaseFormDialog({
     return { gross, cgst, net, totalNet, totalPure, totalGrossWt, avgCostPerGram, estSelling, estProfit, margin }
   }, [rows, gstRate, markup])
 
-  const balance = round2(t.net - amountPaid)
+  // Metal-to-metal settlement: scrap handed over is credited (by its fine value)
+  // against the payable, and its fine weight nets against the lot's fine weight.
+  const moFineTotal = round3(materialOut.reduce((s, r) => s + moFine(r), 0))
+  const moValueTotal = round2(materialOut.reduce((s, r) => s + moAmount(r), 0))
+  const netFine = round3(t.totalPure - moFineTotal)
+  const netPayable = round2(t.net - moValueTotal)
+  const balance = round2(netPayable - amountPaid)
 
   const save = async () => {
     if (!supplierId) return toast.error("Select a supplier")
@@ -204,9 +230,24 @@ export function PurchaseFormDialog({
         cgst: t.cgst,
         sgst: t.cgst,
         netAmount: t.net,
+        materialOutValue: moValueTotal || undefined,
+        materialOutFineWt: moFineTotal || undefined,
         amountPaid,
         balance,
       },
+      materialOut: materialOut
+        .filter((r) => r.grossWt > 0)
+        .map((r) => ({
+          description: r.description || "Scrap",
+          type: r.type,
+          grossWt: r.grossWt,
+          lessWt: r.lessWt || undefined,
+          netWt: moNet(r),
+          purity: r.purity,
+          fineWt: moFine(r),
+          rate: r.rate,
+          amount: moAmount(r),
+        })),
       items: items.map((r) => ({
         description: r.description || "Item",
         type: r.type,
@@ -520,6 +561,72 @@ export function PurchaseFormDialog({
             </div>
           </div>
 
+          {/* Material Out — metal-to-metal settlement */}
+          <div className="rounded-md border">
+            <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-1.5">
+              <span className="text-xs font-semibold text-muted-foreground">Material Out — pay supplier in metal (old scrap)</span>
+              <Button variant="ghost" size="sm" onClick={() => setMaterialOut((m) => [...m, newMO()])}>
+                <Plus className="size-4" /> Add scrap
+              </Button>
+            </div>
+            {materialOut.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[820px] border-collapse text-sm">
+                  <thead className="bg-muted/30 text-xs text-muted-foreground">
+                    <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:text-left [&>th]:font-medium">
+                      <th>Description</th>
+                      <th className="w-24">Metal</th>
+                      <th className="w-16 text-right">Gross</th>
+                      <th className="w-16 text-right">Less</th>
+                      <th className="w-16 text-right">Net</th>
+                      <th className="w-28">Purity</th>
+                      <th className="w-16 text-right">Fine</th>
+                      <th className="w-20 text-right">Rate/g</th>
+                      <th className="w-24 text-right">Value</th>
+                      <th className="w-7" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {materialOut.map((r) => (
+                      <tr key={r.id} className="border-t [&>td]:px-1 [&>td]:py-0.5">
+                        <td><TextCell value={r.description} onChange={(v) => updateMO(r.id, { description: v })} placeholder="e.g. Old scrap gold" /></td>
+                        <td>
+                          <Select value={r.type} onValueChange={(v) => updateMO(r.id, { type: v as MetalType, purity: (PURITY_OPTIONS[v as MetalType] ?? PURITY_OPTIONS.gold)[0] })}>
+                            <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none"><SelectValue /></SelectTrigger>
+                            <SelectContent>{METAL_TYPES.filter((m) => m.value === "gold" || m.value === "silver").map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </td>
+                        <td><NumCell value={r.grossWt} onChange={(v) => updateMO(r.id, { grossWt: v })} /></td>
+                        <td><NumCell value={r.lessWt} onChange={(v) => updateMO(r.id, { lessWt: v })} /></td>
+                        <td className="px-2 text-right tabular text-muted-foreground">{wt(moNet(r))}</td>
+                        <td>
+                          <Select value={r.purity} onValueChange={(v) => updateMO(r.id, { purity: v })}>
+                            <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none"><SelectValue /></SelectTrigger>
+                            <SelectContent>{(PURITY_OPTIONS[r.type] ?? PURITY_OPTIONS.gold).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </td>
+                        <td className="px-2 text-right tabular text-muted-foreground">{wt(moFine(r))}</td>
+                        <td><NumCell value={r.rate} step={1} onChange={(v) => updateMO(r.id, { rate: v })} /></td>
+                        <td className="px-2 text-right font-medium tabular">{formatAmount(moAmount(r))}</td>
+                        <td>
+                          <button onClick={() => setMaterialOut((m) => m.filter((x) => x.id !== r.id))} className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive" aria-label="Remove scrap line">
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="flex flex-wrap gap-x-6 gap-y-1 border-t bg-muted/20 px-3 py-1.5 text-xs text-muted-foreground">
+                  <span>In fine <b className="text-foreground">{wt(t.totalPure)} g</b></span>
+                  <span>Out fine <b className="text-foreground">{wt(moFineTotal)} g</b></span>
+                  <span>Net fine to settle <b className={cn(netFine >= 0 ? "text-foreground" : "text-destructive")}>{wt(netFine)} g</b></span>
+                  <span>Scrap credit <b className="text-emerald-600">₹{formatAmount(moValueTotal)}</b></span>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Tax + payment */}
           <div className="grid grid-cols-2 items-end gap-3 sm:grid-cols-5">
             <div className="space-y-1">
@@ -559,8 +666,11 @@ export function PurchaseFormDialog({
               />
             </div>
             <div className="text-right text-sm">
-              <div className="text-muted-foreground">Net Payable</div>
-              <div className="font-semibold tabular">{formatAmount(t.net)}</div>
+              <div className="text-muted-foreground">Net Payable{moValueTotal > 0 ? " (after scrap)" : ""}</div>
+              <div className="font-semibold tabular">{formatAmount(netPayable)}</div>
+              {moValueTotal > 0 && (
+                <div className="text-[10px] text-muted-foreground">Lot ₹{formatAmount(t.net)} − scrap ₹{formatAmount(moValueTotal)}</div>
+              )}
             </div>
             <div className="text-right text-sm">
               <div className="text-muted-foreground">Balance</div>

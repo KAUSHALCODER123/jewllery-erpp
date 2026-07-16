@@ -36,6 +36,7 @@ import type {
   PaymentMode,
   PurchaseInvoice,
   PurchaseItem,
+  PurchaseMaterialOut,
   Receipt,
   BullionStock,
   InventoryLedger,
@@ -1015,6 +1016,8 @@ const purchaseReturnsServiceDexie = {
 export interface PurchaseDraft {
   invoice: Omit<PurchaseInvoice, "id" | "purchaseNo" | "createdAt">
   items: Omit<PurchaseItem, "id" | "purchaseId">[]
+  /** Metal handed to the supplier as part-payment (metal-to-metal settlement). */
+  materialOut?: PurchaseMaterialOut[]
 }
 
 const purchaseServiceDexie = {
@@ -1043,6 +1046,8 @@ const purchaseServiceDexie = {
           draft.items.map((li) => ({ ...li, purchaseId })),
         )
         for(const li of draft.items)await db.inventory_ledger.add({date:header.date,movement:"in",weight:li.netWt,metalType:li.type,category:li.category,value:li.amount,refType:"purchase",refId:purchaseId,refNo:purchaseNo,description:`${li.description} · ${li.purity}`,createdAt:nowIso()})
+        // Metal-to-metal settlement: scrap handed to the supplier leaves shop stock.
+        for(const m of draft.materialOut ?? [])await db.inventory_ledger.add({date:header.date,movement:"out",weight:m.netWt,metalType:m.type,category:"Material Out (scrap)",value:m.amount,refType:"material_out",refId:purchaseId,refNo:purchaseNo,description:`Scrap to supplier — ${m.description}`,createdAt:nowIso()})
         return { ...header, id: purchaseId }
       },
     )
