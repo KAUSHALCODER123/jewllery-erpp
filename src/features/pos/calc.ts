@@ -40,6 +40,9 @@ export interface SalesLine {
   /** Extra chargeable metal as % of net weight. */
   wastagePct?: number
   purity?: string
+  /** Wholesale/B2B "touch" pricing: charge on the metal's fine content
+   * (net × purity% + wastage) instead of net weight. Rate is then per fine gram. */
+  priceOnFine?: boolean
 }
 
 export interface UrdLine {
@@ -54,6 +57,18 @@ export interface UrdLine {
 
 const round = (n: number): number => Number((n || 0).toFixed(2))
 const round3 = (n: number): number => Number((n || 0).toFixed(3))
+
+/** Fineness % from a purity string like "22K (916)", "916", "91.6", "925 (Sterling)". */
+export const purityFinePct = (purity?: string): number => {
+  if (!purity) return 100
+  const paren = purity.match(/\((\d{3})\)/)
+  if (paren) return Number(paren[1]) / 10
+  const k = purity.match(/(\d{1,2})\s*K/i)
+  if (k) return (Number(k[1]) / 24) * 100
+  const n = Number(purity.replace(/[^\d.]/g, ""))
+  if (Number.isFinite(n) && n > 100) return n / 10 // e.g. "925" → 92.5
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : 100
+}
 
 /** Net weight of a sales line. By-weight lines derive it from gross − less;
  *  tagged/simple lines carry it directly in netWt. */
@@ -73,7 +88,12 @@ export const lineMakingAmount = (l: SalesLine): number =>
  */
 export const lineAmount = (l: SalesLine): number => {
   const net = lineNetWt(l)
-  const chargeableWt = net * (1 + Math.max(0, l.wastagePct || 0) / 100)
+  const wastage = Math.max(0, l.wastagePct || 0)
+  // Touch pricing (wholesale): charge on fine content = net × (purity% + wastage%).
+  // Net pricing (default): charge on net × (1 + wastage%).
+  const chargeableWt = l.priceOnFine
+    ? net * ((purityFinePct(l.purity) + wastage) / 100)
+    : net * (1 + wastage / 100)
   return round(chargeableWt * l.rate + lineMakingAmount(l))
 }
 

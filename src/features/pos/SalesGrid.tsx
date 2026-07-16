@@ -62,6 +62,7 @@ function GoldTab({ lines }: { lines: SalesLine[] }) {
   const addSalesLine = usePosStore((s) => s.addSalesLine)
   const updateSalesLine = usePosStore((s) => s.updateSalesLine)
   const removeSalesLine = usePosStore((s) => s.removeSalesLine)
+  const hasBW = lines.some((l) => l.byWeight)
 
   const [scan, setScan] = useState("")
   const scanRef = useRef<HTMLInputElement>(null)
@@ -206,6 +207,14 @@ function GoldTab({ lines }: { lines: SalesLine[] }) {
         >
           <Plus className="size-4" /> Blank row
         </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => addSalesLine({ byWeight: true, metal: "gold", category: "Other", purity: "22K (916)", grossWt: 0, lessWt: 0, wastagePct: 0, priceOnFine: true })}
+          title="Sell gold by weight (wholesale / B2B) — priced on fine (touch)"
+        >
+          <Plus className="size-4" /> By-weight (wholesale)
+        </Button>
       </div>
 
       {/* Grid */}
@@ -216,8 +225,12 @@ function GoldTab({ lines }: { lines: SalesLine[] }) {
               <th className="w-24">Tag</th>
               <th>Description</th>
               <th className="w-24">Category</th>
+              {hasBW && <th className="w-24">Purity</th>}
+              {hasBW && <th className="w-16 text-right">Gross</th>}
+              {hasBW && <th className="w-16 text-right">Less</th>}
               <th className="w-24 text-right">Net Wt (g)</th>
-              <th className="w-28 text-right">Rate/g</th>
+              {hasBW && <th className="w-16 text-right">Wastage%</th>}
+              <th className="w-32 text-right">Rate/g</th>
               <th className="w-28 text-right">Making/g</th>
               <th className="w-28 text-right">Making ₹</th>
               <th className="w-32 text-right">Amount ₹</th>
@@ -228,7 +241,7 @@ function GoldTab({ lines }: { lines: SalesLine[] }) {
             {lines.map((l) => (
               <tr key={l.id} className="border-b [&>td]:px-1 [&>td]:py-0.5 hover:bg-accent/20">
                 <td className="font-medium">
-                  <TextCell value={l.tag} onChange={(v) => updateSalesLine(l.id, { tag: v.toUpperCase() })} placeholder="—" aria-label="Tag" />
+                  {l.byWeight ? <span className="px-2 text-muted-foreground">—</span> : <TextCell value={l.tag} onChange={(v) => updateSalesLine(l.id, { tag: v.toUpperCase() })} placeholder="—" aria-label="Tag" />}
                 </td>
                 <td>
                   <TextCell value={l.description} onChange={(v) => updateSalesLine(l.id, { description: v })} placeholder="Item description" aria-label="Description" />
@@ -247,11 +260,31 @@ function GoldTab({ lines }: { lines: SalesLine[] }) {
                     </SelectContent>
                   </Select>
                 </td>
+                {hasBW && (
+                  <td>
+                    {l.byWeight ? (
+                      <Select value={l.purity ?? ""} onValueChange={(v) => updateSalesLine(l.id, { purity: v })}>
+                        <SelectTrigger size="sm" className="h-8 w-full border-0 shadow-none" aria-label="Purity"><SelectValue placeholder="—" /></SelectTrigger>
+                        <SelectContent>{(PURITY_OPTIONS[l.metal ?? "gold"] ?? PURITY_OPTIONS.gold).map((p) => <SelectOption key={p} value={p}>{p}</SelectOption>)}</SelectContent>
+                      </Select>
+                    ) : <span className="block px-2 text-muted-foreground">—</span>}
+                  </td>
+                )}
+                {hasBW && <td>{l.byWeight ? <NumCell value={l.grossWt ?? 0} onChange={(v) => updateSalesLine(l.id, { grossWt: v })} aria-label="Gross weight" /> : <span className="block px-2 text-right text-muted-foreground">—</span>}</td>}
+                {hasBW && <td>{l.byWeight ? <NumCell value={l.lessWt ?? 0} onChange={(v) => updateSalesLine(l.id, { lessWt: v })} aria-label="Less weight" /> : <span className="block px-2 text-right text-muted-foreground">—</span>}</td>}
                 <td>
-                  <NumCell value={l.netWt} onChange={(v) => updateSalesLine(l.id, { netWt: v })} aria-label="Net weight" />
+                  {l.byWeight ? <span className="block px-2 text-right tabular text-muted-foreground" aria-label="Net weight">{wt(lineNetWt(l))}</span> : <NumCell value={l.netWt} onChange={(v) => updateSalesLine(l.id, { netWt: v })} aria-label="Net weight" />}
                 </td>
+                {hasBW && <td>{l.byWeight ? <NumCell value={l.wastagePct ?? 0} step={0.1} onChange={(v) => updateSalesLine(l.id, { wastagePct: v })} aria-label="Wastage percent" /> : <span className="block px-2 text-right text-muted-foreground">—</span>}</td>}
                 <td>
-                  <NumCell value={l.rate} step={1} onChange={(v) => updateSalesLine(l.id, { rate: v })} aria-label="Rate per gram" />
+                  <div className="flex items-center gap-1">
+                    {l.byWeight && (
+                      <button type="button" onClick={() => updateSalesLine(l.id, { priceOnFine: !l.priceOnFine })} className="shrink-0 rounded border px-1 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent" title="Rate applied to net weight or fine (touch)">
+                        {l.priceOnFine ? "fine" : "net"}
+                      </button>
+                    )}
+                    <NumCell value={l.rate} step={1} onChange={(v) => updateSalesLine(l.id, { rate: v })} aria-label="Rate per gram" />
+                  </div>
                 </td>
                 <td>
                   <div className="flex items-center gap-1">
@@ -277,8 +310,8 @@ function GoldTab({ lines }: { lines: SalesLine[] }) {
             ))}
             {lines.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-10 text-center text-muted-foreground">
-                  Scan a gold barcode or add a blank row.
+                <td colSpan={hasBW ? 13 : 9} className="py-10 text-center text-muted-foreground">
+                  Scan a gold barcode, add a blank row, or add a by-weight (wholesale) line.
                 </td>
               </tr>
             )}
@@ -286,9 +319,9 @@ function GoldTab({ lines }: { lines: SalesLine[] }) {
           {lines.length > 0 && (
             <tfoot className="sticky bottom-0 bg-card">
               <tr className="border-t-2 font-medium [&>td]:px-2 [&>td]:py-1.5">
-                <td colSpan={3} className="text-muted-foreground">{lines.length} gold item(s)</td>
+                <td colSpan={hasBW ? 6 : 3} className="text-muted-foreground">{lines.length} gold item(s)</td>
                 <td className="text-right tabular">{wt(lines.reduce((s, l) => s + lineNetWt(l), 0))}</td>
-                <td colSpan={2} />
+                <td colSpan={hasBW ? 3 : 2} />
                 <td className="text-right text-muted-foreground tabular">{formatAmount(lines.reduce((s, l) => s + lineMakingAmount(l), 0))}</td>
                 <td className="text-right tabular">{formatAmount(lines.reduce((s, l) => s + lineAmount(l), 0))}</td>
                 <td />
@@ -375,7 +408,12 @@ function SilverTab({ lines }: { lines: SalesLine[] }) {
                   <NumCell value={l.wastagePct ?? 0} step={0.1} onChange={(v) => updateSalesLine(l.id, { wastagePct: v })} aria-label="Wastage percent" />
                 </td>
                 <td>
-                  <NumCell value={l.rate} step={1} onChange={(v) => updateSalesLine(l.id, { rate: v })} aria-label="Rate per gram" />
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => updateSalesLine(l.id, { priceOnFine: !l.priceOnFine })} className="shrink-0 rounded border px-1 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent" title="Rate applied to net weight or fine (touch)">
+                      {l.priceOnFine ? "fine" : "net"}
+                    </button>
+                    <NumCell value={l.rate} step={1} onChange={(v) => updateSalesLine(l.id, { rate: v })} aria-label="Rate per gram" />
+                  </div>
                 </td>
                 <td>
                   <div className="flex items-center gap-1">

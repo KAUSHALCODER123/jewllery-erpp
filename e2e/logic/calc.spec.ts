@@ -74,6 +74,18 @@ test.describe("POS line math", () => {
     const l = sale({ makingMode: "per_gram", makingPerGm: 500, netWt: 10 })
     expect(lineMakingAmount(l)).toBe(5000) // 500×10
   })
+
+  test("touch (fine) pricing charges on fine content, not net weight", () => {
+    // Wholesale: 100g 22K (91.6%) @ ₹6000/fine-g, no making/wastage
+    const l = sale({ byWeight: true, grossWt: 100, lessWt: 0, netWt: 0, purity: "22K (916)", rate: 6000, makingPerGm: 0, wastagePct: 0, priceOnFine: true })
+    expect(lineNetWt(l)).toBe(100)
+    expect(lineAmount(l)).toBe(549600) // 100 × 0.916 × 6000
+  })
+
+  test("net (default) pricing still charges on net weight", () => {
+    const l = sale({ byWeight: true, grossWt: 100, lessWt: 0, netWt: 0, purity: "22K (916)", rate: 6000, makingPerGm: 0, wastagePct: 0, priceOnFine: false })
+    expect(lineAmount(l)).toBe(600000) // 100 × 6000 (purity ignored)
+  })
 })
 
 test.describe("computeTotals", () => {
