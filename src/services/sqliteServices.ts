@@ -273,7 +273,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
         const{code:jobNo}=await nextSequenceRaw(exec,"karigar_job",{prefix:"JOB"})
         const jobRec={karigarId:input.karigarId,issuedDate:todayStr(),metalIssuedWt:input.metalIssuedWt,wastageAllowed:input.wastageAllowed,description:`Repair ${before.repairNo}`,repairId,jobNo,finishedWt:0,status:"issued" as const,createdAt:nowIso()}
         const job=await karigarJobsRepo.add(jobRec as never) as unknown as KarigarJob
-        await inventoryLedgerRepo.add({date:jobRec.issuedDate,movement:"out",weight:input.metalIssuedWt,refType:"karigar_issue",refId:job.id,refNo:jobNo,description:jobRec.description,createdAt:nowIso()})
+        await inventoryLedgerRepo.add({date:jobRec.issuedDate,movement:"out",weight:input.metalIssuedWt,metalType:"gold",category:"Karigar",refType:"karigar_issue",refId:job.id,refNo:jobNo,description:jobRec.description,createdAt:nowIso()})
         const karigar=await karigarsRepo.get(input.karigarId) as unknown as Karigar|undefined
         if(karigar)await karigarsRepo.update(input.karigarId,{metalBalanceWt:round3(karigar.metalBalanceWt+input.metalIssuedWt)})
         const now=nowIso(),status:RepairStatus=before.status==="received"?"in_progress":before.status
@@ -293,7 +293,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
         if(job){
           const credited=input.finishedWt+(job.metalIssuedWt*input.wastageAllowed)/100
           await karigarJobsRepo.update(before.karigarJobId,{finishedWt:input.finishedWt,wastageAllowed:input.wastageAllowed,status:"received",receivedDate:todayStr()})
-          await inventoryLedgerRepo.add({date:todayStr(),movement:"in",weight:input.finishedWt,refType:"karigar_receive",refId:before.karigarJobId,refNo:job.jobNo,description:job.description,createdAt:nowIso()})
+          await inventoryLedgerRepo.add({date:todayStr(),movement:"in",weight:input.finishedWt,metalType:"gold",category:"Karigar",refType:"karigar_receive",refId:before.karigarJobId,refNo:job.jobNo,description:job.description,createdAt:nowIso()})
           const karigar=await karigarsRepo.get(job.karigarId) as unknown as Karigar|undefined
           if(karigar)await karigarsRepo.update(job.karigarId,{metalBalanceWt:round3(karigar.metalBalanceWt-credited)})
         }
@@ -717,7 +717,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
           createdAt: nowIso(),
         }
         const created = (await karigarJobsRepo.add(record as never)) as unknown as KarigarJob
-        await inventoryLedgerRepo.add({date:input.issuedDate,movement:"out",weight:input.metalIssuedWt,refType:"karigar_issue",refId:created.id,refNo:jobNo,description:input.description,createdAt:nowIso()})
+        await inventoryLedgerRepo.add({date:input.issuedDate,movement:"out",weight:input.metalIssuedWt,metalType:"gold",category:"Karigar",refType:"karigar_issue",refId:created.id,refNo:jobNo,description:input.description,createdAt:nowIso()})
         const karigar = (await karigarsRepo.get(input.karigarId)) as unknown as Karigar | undefined
         if (karigar) {
           await karigarsRepo.update(input.karigarId, {
@@ -741,7 +741,7 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
           status: "received",
           receivedDate: todayStr(),
         })
-        await inventoryLedgerRepo.add({date:todayStr(),movement:"in",weight:finishedWt,refType:"karigar_receive",refId:jobId,refNo:job.jobNo,description:job.description,createdAt:nowIso()})
+        await inventoryLedgerRepo.add({date:todayStr(),movement:"in",weight:finishedWt,metalType:"gold",category:"Karigar",refType:"karigar_receive",refId:jobId,refNo:job.jobNo,description:job.description,createdAt:nowIso()})
         const karigar = (await karigarsRepo.get(job.karigarId)) as unknown as Karigar | undefined
         if (karigar) {
           await karigarsRepo.update(job.karigarId, {

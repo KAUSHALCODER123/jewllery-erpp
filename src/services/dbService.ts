@@ -815,7 +815,7 @@ const karigarsServiceDexie = {
         createdAt: nowIso(),
       }
       const id = await db.karigar_jobs.add(record)
-      await db.inventory_ledger.add({date:input.issuedDate,movement:"out",weight:input.metalIssuedWt,refType:"karigar_issue",refId:id,refNo:jobNo,description:input.description,createdAt:nowIso()})
+      await db.inventory_ledger.add({date:input.issuedDate,movement:"out",weight:input.metalIssuedWt,metalType:"gold",category:"Karigar",refType:"karigar_issue",refId:id,refNo:jobNo,description:input.description,createdAt:nowIso()})
       const karigar = await db.karigars.get(input.karigarId)
       if (karigar) {
         await db.karigars.update(input.karigarId, {
@@ -848,7 +848,7 @@ const karigarsServiceDexie = {
         status: "received",
         receivedDate: todayStr(),
       })
-      await db.inventory_ledger.add({date:todayStr(),movement:"in",weight:finishedWt,refType:"karigar_receive",refId:jobId,refNo:job.jobNo,description:job.description,createdAt:nowIso()})
+      await db.inventory_ledger.add({date:todayStr(),movement:"in",weight:finishedWt,metalType:"gold",category:"Karigar",refType:"karigar_receive",refId:jobId,refNo:job.jobNo,description:job.description,createdAt:nowIso()})
       const karigar = await db.karigars.get(job.karigarId)
       if (karigar) {
         await db.karigars.update(job.karigarId, {

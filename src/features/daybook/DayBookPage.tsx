@@ -23,9 +23,10 @@ import {
   salesService,
   customersService,
   loansService,
+  ledgerService,
   todayStr,
 } from "@/services/dbService"
-import { formatAmount, formatINR } from "@/lib/format"
+import { formatAmount, formatINR, wt } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/components/PageHeader"
 import { Button } from "@/components/ui/button"
@@ -85,6 +86,7 @@ export function DayBookPage() {
   )
   const customers = useLiveData(() => customersService.getAll(), [], [])
   const loans = useLiveData(() => loansService.getAll(), [], [])
+  const tally = useLiveData(() => ledgerService.metalTally(date), [date], undefined)
 
   const custName = useMemo(() => {
     const m = new Map<number, string>()
@@ -199,6 +201,48 @@ export function DayBookPage() {
             </div>
           ))}
         </div>
+
+        {/* Metal reconciliation (weight) */}
+        <section>
+          <h2 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            Metal Reconciliation (Weight)
+          </h2>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Metal</TableHead>
+                  <TableHead className="text-right">Opening (g)</TableHead>
+                  <TableHead className="text-right">In (g)</TableHead>
+                  <TableHead className="text-right">Out (g)</TableHead>
+                  <TableHead className="text-right">Expected Closing (g)</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(tally?.groups ?? []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                      No metal movement recorded up to this day.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {(tally?.groups ?? []).map((g) => (
+                  <TableRow key={g.metal}>
+                    <TableCell className="font-medium capitalize">{g.metal}</TableCell>
+                    <TableCell className="text-right tabular text-muted-foreground">{wt(g.opening)}</TableCell>
+                    <TableCell className="text-right tabular text-emerald-600">{g.inWt ? `+${wt(g.inWt)}` : "—"}</TableCell>
+                    <TableCell className="text-right tabular text-destructive">{g.outWt ? `−${wt(g.outWt)}` : "—"}</TableCell>
+                    <TableCell className="text-right font-semibold tabular">{wt(g.closing)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Opening + In − Out = Expected Closing. In = purchases + old gold (URD) + karigar returns;
+            Out = sales + karigar issues. Weigh the physical trays to reconcile. Category breakdown in Metal Tally.
+          </p>
+        </section>
 
         {/* Invoice list */}
         <section>
