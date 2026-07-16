@@ -17,8 +17,12 @@ export interface SalesLine {
   netWt: number
   /** Metal rate per gram. */
   rate: number
-  /** Making charge per gram. */
+  /** Making charge. Interpreted per the makingMode: per gram (× net wt) or a flat
+   * per-piece amount. */
   makingPerGm: number
+  /** How making is applied: "per_gram" (default) multiplies by net weight;
+   * "per_piece" charges makingPerGm as a flat amount for the piece. */
+  makingMode?: "per_gram" | "per_piece"
   /** HSN tax code. */
   hsn?: string
   /** Metal of this line — drives the weight tally (gold/silver…). Loose (untagged)
@@ -56,9 +60,10 @@ const round3 = (n: number): number => Number((n || 0).toFixed(3))
 export const lineNetWt = (l: SalesLine): number =>
   l.byWeight ? round3(Math.max(0, (l.grossWt || 0) - (l.lessWt || 0))) : (l.netWt || 0)
 
-/** Making amount for a sales line = makingPerGm × netWt. */
+/** Making amount for a sales line. "per_piece" = flat makingPerGm; otherwise
+ *  makingPerGm × net weight. */
 export const lineMakingAmount = (l: SalesLine): number =>
-  round(l.makingPerGm * lineNetWt(l))
+  round(l.makingMode === "per_piece" ? l.makingPerGm : l.makingPerGm * lineNetWt(l))
 
 /**
  * Final amount for a sales line. Metal value is charged on the net weight plus any
@@ -69,7 +74,7 @@ export const lineMakingAmount = (l: SalesLine): number =>
 export const lineAmount = (l: SalesLine): number => {
   const net = lineNetWt(l)
   const chargeableWt = net * (1 + Math.max(0, l.wastagePct || 0) / 100)
-  return round(chargeableWt * l.rate + l.makingPerGm * net)
+  return round(chargeableWt * l.rate + lineMakingAmount(l))
 }
 
 /** Net weight of an old-gold line after the "less %" deduction. */

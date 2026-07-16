@@ -254,7 +254,17 @@ function GoldTab({ lines }: { lines: SalesLine[] }) {
                   <NumCell value={l.rate} step={1} onChange={(v) => updateSalesLine(l.id, { rate: v })} aria-label="Rate per gram" />
                 </td>
                 <td>
-                  <NumCell value={l.makingPerGm} step={1} onChange={(v) => updateSalesLine(l.id, { makingPerGm: v })} aria-label="Making per gram" />
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => updateSalesLine(l.id, { makingMode: l.makingMode === "per_piece" ? "per_gram" : "per_piece" })}
+                      className="shrink-0 rounded border px-1 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent"
+                      title="Toggle making: per gram / per piece (flat)"
+                    >
+                      {l.makingMode === "per_piece" ? "/pc" : "/g"}
+                    </button>
+                    <NumCell value={l.makingPerGm} step={1} onChange={(v) => updateSalesLine(l.id, { makingPerGm: v })} aria-label={l.makingMode === "per_piece" ? "Making per piece" : "Making per gram"} />
+                  </div>
                 </td>
                 <td className="px-2 text-right text-muted-foreground tabular">{formatAmount(lineMakingAmount(l))}</td>
                 <td className="px-2 text-right font-medium tabular">{formatAmount(lineAmount(l))}</td>
@@ -368,7 +378,17 @@ function SilverTab({ lines }: { lines: SalesLine[] }) {
                   <NumCell value={l.rate} step={1} onChange={(v) => updateSalesLine(l.id, { rate: v })} aria-label="Rate per gram" />
                 </td>
                 <td>
-                  <NumCell value={l.makingPerGm} step={1} onChange={(v) => updateSalesLine(l.id, { makingPerGm: v })} aria-label="Making per gram" />
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => updateSalesLine(l.id, { makingMode: l.makingMode === "per_piece" ? "per_gram" : "per_piece" })}
+                      className="shrink-0 rounded border px-1 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-accent"
+                      title="Toggle making: per gram / per piece (flat)"
+                    >
+                      {l.makingMode === "per_piece" ? "/pc" : "/g"}
+                    </button>
+                    <NumCell value={l.makingPerGm} step={1} onChange={(v) => updateSalesLine(l.id, { makingPerGm: v })} aria-label={l.makingMode === "per_piece" ? "Making per piece" : "Making per gram"} />
+                  </div>
                 </td>
                 <td className="px-2 text-right font-medium tabular">{formatAmount(lineAmount(l))}</td>
                 <td>

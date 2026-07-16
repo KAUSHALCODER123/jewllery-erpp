@@ -63,6 +63,17 @@ test.describe("POS line math", () => {
     expect(lineNetWt(l)).toBe(10)
     expect(lineAmount(l)).toBe(65000)
   })
+
+  test("per-piece making is a flat charge, not × weight", () => {
+    const l = sale({ makingMode: "per_piece", makingPerGm: 500, netWt: 10, rate: 6000 })
+    expect(lineMakingAmount(l)).toBe(500) // flat, not 500×10
+    expect(lineAmount(l)).toBe(60500) // 6000×10 + 500
+  })
+
+  test("per-gram making (default) still multiplies by weight", () => {
+    const l = sale({ makingMode: "per_gram", makingPerGm: 500, netWt: 10 })
+    expect(lineMakingAmount(l)).toBe(5000) // 500×10
+  })
 })
 
 test.describe("computeTotals", () => {
