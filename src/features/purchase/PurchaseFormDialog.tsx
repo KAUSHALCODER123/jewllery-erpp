@@ -446,7 +446,7 @@ export function PurchaseFormDialog({
                     {advOpen && <th className="w-20 text-right">Disc ₹</th>}
                     {advOpen && <th className="w-24">HUID</th>}
                     <th className="w-24 text-right">Amount</th>
-                    <th className="w-12 text-center" title="Add to stock">Stock</th>
+                    <th className="w-14 text-center" title="Tag = barcoded piece; Bulk = weight-wise loose gold">Add as</th>
                     <th className="w-7" />
                   </tr>
                 </thead>
@@ -526,13 +526,20 @@ export function PurchaseFormDialog({
                         {r.type === "silver" ? (
                           <span className="text-[10px] text-muted-foreground" title="Silver is tracked by weight — no barcode tag">By wt</span>
                         ) : (
-                          <input
-                            type="checkbox"
-                            checked={r.addToStock}
-                            onChange={(e) => update(r.id, { addToStock: e.target.checked })}
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={r.addToStock}
                             aria-label="Add to stock"
-                            className="size-4 cursor-pointer accent-primary"
-                          />
+                            onClick={() => update(r.id, { addToStock: !r.addToStock })}
+                            className={cn(
+                              "rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                              r.addToStock ? "border-primary/40 bg-primary/10 text-primary" : "text-muted-foreground",
+                            )}
+                            title={r.addToStock ? "Tagged jewellery piece (barcode printed)" : "Weight-wise bulk gold → loose stock, no tag"}
+                          >
+                            {r.addToStock ? "Tag" : "Bulk"}
+                          </button>
                         )}
                       </td>
                       <td>

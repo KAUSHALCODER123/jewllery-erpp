@@ -29,8 +29,8 @@ test("purchase: a ticked line becomes a tagged stock item", async ({ page }) => 
   await rowNums.nth(0).fill("10") // gross wt
   await rowNums.nth(2).fill("6000") // rate/g
 
-  // The Stock box defaults to ticked — this is what routes the line to inventory.
-  await expect(row.getByRole("checkbox", { name: /add to stock/i })).toBeChecked()
+  // The "Add as" toggle defaults to Tag — this is what routes the line to inventory.
+  await expect(row.getByRole("switch", { name: /add to stock/i })).toHaveAttribute("aria-checked", "true")
 
   await dialog.getByRole("button", { name: /save purchase/i }).click()
   await expect(page.getByText(/added to stock/i)).toBeVisible({ timeout: 10_000 })
@@ -70,10 +70,10 @@ test("purchase: an unticked line does NOT create a stock item", async ({ page })
   const row = dialog.locator("tbody tr").first()
   await row.locator('input[type="number"]').nth(0).fill("50")
 
-  // Untick — this line should be billed but not shelved.
-  const stock = row.getByRole("checkbox", { name: /add to stock/i })
-  await stock.uncheck()
-  await expect(stock).not.toBeChecked()
+  // Switch to Bulk (weight-wise) — this line should be billed but not shelved.
+  const stock = row.getByRole("switch", { name: /add to stock/i })
+  await stock.click()
+  await expect(stock).toHaveAttribute("aria-checked", "false")
 
   await dialog.getByRole("button", { name: /save purchase/i }).click()
   await expect(page.getByText(/^Saved PUR/)).toBeVisible({ timeout: 10_000 })
