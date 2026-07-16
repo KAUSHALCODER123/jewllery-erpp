@@ -22,6 +22,7 @@ import {
   Calculator,
   Wrench,
   Scale,
+  Recycle,
   HelpCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -48,6 +49,7 @@ const NAV: NavItem[] = [
   { to: "/operations", label: "Counter Operations", icon: Calculator },
   { to: "/repairs", label: "Repairs", icon: Wrench },
   { to: "/purchase", label: "Purchase", icon: Truck },
+  { to: "/old-purchase", label: "Old Gold Purchase", icon: Recycle },
   { to: "/refining", label: "Refining (Ghalai)", icon: Flame },
   { to: "/schemes", label: "Gold Schemes", icon: PiggyBank },
   { to: "/orders", label: "Order Booking", icon: ClipboardList },

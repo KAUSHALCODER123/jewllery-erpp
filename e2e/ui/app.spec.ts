@@ -33,6 +33,7 @@ const ROUTES: { link: string; path: string }[] = [
   { link: "Customers", path: "/customers" },
   { link: "Receipt (Udhari)", path: "/receipt" },
   { link: "Purchase", path: "/purchase" },
+  { link: "Old Gold Purchase", path: "/old-purchase" },
   { link: "Refining (Ghalai)", path: "/refining" },
   { link: "Gold Schemes", path: "/schemes" },
   { link: "Order Booking", path: "/orders" },

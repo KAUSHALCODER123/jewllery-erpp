@@ -417,6 +417,28 @@ test("purchase.create mints a number and inserts header + lines atomically", asy
   expect(sqls.some((s) => s.includes('INSERT INTO "purchase_items"'))).toBeTruthy()
 })
 
+test("buyOldGold adds scrap to loose stock (ledger IN) and books a cash payout voucher", async () => {
+  const { exec, calls } = fakeExecutor([{ match: /SELECT value FROM counters/, rows: [{ value: 0 }] }], 20)
+  const { operationsService } = makeSqliteServices(exec)
+  const res = await operationsService.buyOldGold({
+    date: "2026-07-16",
+    party: "Walk-in",
+    mode: "cash",
+    lines: [{ description: "Old chain", type: "gold", netWt: 20, purity: "22K (916)", fineWt: 18.32, rate: 6000, amount: 109920 }],
+  })
+  expect(res.voucherNo).toBe("PV0001")
+  expect(res.total).toBe(109920)
+  const sqls = sqlList(calls)
+  expect(sqls[0]).toBe("BEGIN")
+  expect(sqls[sqls.length - 1]).toBe("COMMIT")
+  // scrap → loose metal IN
+  const led = calls.filter((c) => /INSERT INTO "inventory_ledger"/.test(c.sql))
+  expect(led.length).toBe(1)
+  expect(led[0].params).toContain("old_gold_purchase")
+  // cash payout → a payment voucher (feeds the Day Book)
+  expect(calls.some((c) => /INSERT INTO "cash_vouchers"/.test(c.sql) && c.params.includes("Old Gold Purchase"))).toBeTruthy()
+})
+
 test("purchase.create logs Material Out scrap as a metal ledger OUT (metal-to-metal)", async () => {
   const { exec, calls } = fakeExecutor([{ match: /SELECT value FROM counters/, rows: [{ value: 0 }] }], 12)
   const { purchaseService } = makeSqliteServices(exec)

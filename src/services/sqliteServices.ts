@@ -16,6 +16,7 @@ import type {
   KarigarJob,
   Loan,
   LoanPayment,
+  MetalType,
   PaymentMode,
   PurchaseInvoice,
   Refining,
@@ -251,6 +252,20 @@ export function makeSqliteServices(exec: SqlExecutor = tauriExecutor, systemExec
     async unblockVoucher(id:number,actor?:{user?:string;role?:UserRole}){assertAllowed(actor?.role,"irreversible_stock");await vouchersRepo.update(id,{blocked:false} as never);await auditRepo.add({createdAt:nowIso(),user:actor?.user,action:"unblock_voucher",entity:"cash_voucher",entityId:id})},
     async addVoucher(input: Omit<CashVoucher, "id" | "voucherNo" | "createdAt">) {
       return withTransaction(exec, async () => { if (!(input.amount > 0)) throw new Error("Amount must be greater than zero"); const { code: voucherNo } = await nextSequenceRaw(exec, input.kind === "payment" ? "payment_voucher" : "receipt_voucher", { prefix: input.kind === "payment" ? "PV" : "RV" }); const record = { ...input, voucherNo, createdAt: nowIso() }; const row = await vouchersRepo.add(record); await auditRepo.add({ createdAt: nowIso(), user: input.createdBy, action: `create_${input.kind}_voucher`, entity: "cash_voucher", entityId: row.id, afterJson: JSON.stringify(record) }); return row as unknown as CashVoucher })
+    },
+    async buyOldGold(input: { date: string; party?: string; mode: Exclude<PaymentMode, "credit">; createdBy?: string; lines: Array<{ description: string; type: MetalType; netWt: number; purity: string; fineWt: number; rate: number; amount: number }> }): Promise<{ voucherNo: string; total: number }> {
+      const lines = input.lines.filter((l) => l.amount > 0 || l.netWt > 0)
+      const total = round(lines.reduce((s, l) => s + l.amount, 0))
+      if (!(total > 0)) throw new Error("Add at least one scrap line with a value")
+      return withTransaction(exec, async () => {
+        const { code: voucherNo } = await nextSequenceRaw(exec, "payment_voucher", { prefix: "PV" })
+        const now = nowIso()
+        for (const l of lines) await inventoryLedgerRepo.add({ date: input.date, movement: "in", weight: l.netWt, metalType: l.type, category: "Old Gold (cash buy)", value: l.amount, refType: "old_gold_purchase", refNo: voucherNo, description: l.description || "Old gold", createdBy: input.createdBy, createdAt: now })
+        const rec = { voucherNo, date: input.date, kind: "payment" as const, category: "Old Gold Purchase", mode: input.mode, amount: total, party: input.party || undefined, createdBy: input.createdBy, createdAt: now }
+        const row = await vouchersRepo.add(rec)
+        await auditRepo.add({ createdAt: now, user: input.createdBy, action: "old_gold_purchase", entity: "cash_voucher", entityId: row.id, afterJson: JSON.stringify({ ...rec, lines }) })
+        return { voucherNo, total }
+      })
     },
     async getClosing(date: string) { return (await queryRows<DayClosing>("day_closings", " WHERE date = $1", [date]))[0] },
     async closeDay(input: { date: string; openingCash: number; physicalCash: number; notes?: string; closedBy?: string }) {

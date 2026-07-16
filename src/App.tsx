@@ -24,6 +24,7 @@ const KarigarPage = lazy(() => named(import("@/features/karigar/KarigarPage"), "
 const OrdersPage = lazy(() => named(import("@/features/orders/OrdersPage"), "OrdersPage"))
 const DayBookPage = lazy(() => named(import("@/features/daybook/DayBookPage"), "DayBookPage"))
 const PurchasePage = lazy(() => named(import("@/features/purchase/PurchasePage"), "PurchasePage"))
+const OldPurchasePage = lazy(() => named(import("@/features/purchase/OldPurchasePage"), "OldPurchasePage"))
 const SchemesPage = lazy(() => named(import("@/features/schemes/SchemesPage"), "SchemesPage"))
 const ReportsPage = lazy(() => named(import("@/features/reports/ReportsPage"), "ReportsPage"))
 const MetalTallyPage = lazy(() => named(import("@/features/reports/MetalTallyPage"), "MetalTallyPage"))
@@ -91,6 +92,7 @@ function App() {
               <Route path="operations" element={<OperationsPage />} />
               <Route path="repairs" element={<RepairsPage />} />
               <Route path="purchase" element={<PurchasePage />} />
+              <Route path="old-purchase" element={<OldPurchasePage />} />
               <Route path="refining" element={<RefiningPage />} />
               <Route path="schemes" element={<SchemesPage />} />
               <Route path="orders" element={<OrdersPage />} />

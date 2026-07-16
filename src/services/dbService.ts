@@ -34,6 +34,7 @@ import type {
   Order,
   OrderStatus,
   PaymentMode,
+  MetalType,
   PurchaseInvoice,
   PurchaseItem,
   PurchaseMaterialOut,
@@ -401,6 +402,22 @@ const operationsServiceDexie = {
       const id = await db.cash_vouchers.add(record)
       await db.audit_log.add({ createdAt: nowIso(), user: input.createdBy, action: `create_${input.kind}_voucher`, entity: "cash_voucher", entityId: id, afterJson: JSON.stringify(record) })
       return { ...record, id }
+    })
+  },
+  /** Pure old-gold purchase (customer sells scrap for cash, no sale): adds the scrap
+   * to loose metal stock (ledger IN) and books a cash payout voucher (Day Book Cash Out). */
+  async buyOldGold(input: { date: string; party?: string; mode: Exclude<PaymentMode, "credit">; createdBy?: string; lines: Array<{ description: string; type: MetalType; netWt: number; purity: string; fineWt: number; rate: number; amount: number }> }): Promise<{ voucherNo: string; total: number }> {
+    const lines = input.lines.filter((l) => l.amount > 0 || l.netWt > 0)
+    const total = round(lines.reduce((s, l) => s + l.amount, 0))
+    if (!(total > 0)) throw new Error("Add at least one scrap line with a value")
+    return db.transaction("rw", [db.cash_vouchers, db.counters, db.inventory_ledger, db.audit_log], async () => {
+      const { code: voucherNo } = await nextSequence("payment_voucher", { prefix: "PV" })
+      const now = nowIso()
+      for (const l of lines) await db.inventory_ledger.add({ date: input.date, movement: "in", weight: l.netWt, metalType: l.type, category: "Old Gold (cash buy)", value: l.amount, refType: "old_gold_purchase", refNo: voucherNo, description: l.description || "Old gold", createdBy: input.createdBy, createdAt: now })
+      const rec: CashVoucher = { voucherNo, date: input.date, kind: "payment", category: "Old Gold Purchase", mode: input.mode, amount: total, party: input.party || undefined, createdBy: input.createdBy, createdAt: now }
+      const id = await db.cash_vouchers.add(rec)
+      await db.audit_log.add({ createdAt: now, user: input.createdBy, action: "old_gold_purchase", entity: "cash_voucher", entityId: id, afterJson: JSON.stringify({ ...rec, lines }) })
+      return { voucherNo, total }
     })
   },
   getClosing: (date: string): Promise<DayClosing | undefined> => db.day_closings.where("date").equals(date).first(),

@@ -54,7 +54,11 @@ export async function login(page: Page): Promise<void> {
  * accessible name is "Billing / POS F2" — match by substring, not exactly.
  */
 export async function navTo(page: Page, label: string): Promise<void> {
-  await page.getByRole("link", { name: label }).click()
+  // Prefer an exact match (so "Purchase" doesn't also hit "Old Gold Purchase");
+  // fall back to substring for links whose accessible name carries an F-key hint.
+  const exact = page.getByRole("link", { name: label, exact: true })
+  const link = (await exact.count()) ? exact.first() : page.getByRole("link", { name: label }).first()
+  await link.click()
 }
 
 /**
