@@ -2008,7 +2008,7 @@ dependencies = [
 
 [[package]]
 name = "jewel-erp"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "machine-uid",
  "serde",
