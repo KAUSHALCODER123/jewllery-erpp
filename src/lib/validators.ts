@@ -29,6 +29,8 @@ export const itemSchema = z
     stoneWt: positiveWt,
     makingChargePerGm: nonNegMoney,
     quantity: z.number().int().min(1, "At least 1"),
+    /** Unit of measurement: pieces (barcode) vs weight-wise bulk (grams/kg). */
+    uom: z.enum(["pieces", "grams", "kilograms"]),
     huid: z
       .string()
       .trim()

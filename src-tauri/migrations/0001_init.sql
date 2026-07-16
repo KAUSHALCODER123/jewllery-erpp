@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS items (
   hsn               TEXT,
   category          TEXT,
   quantity          INTEGER DEFAULT 1,
+  uom               TEXT DEFAULT 'pieces',
   status            TEXT DEFAULT 'in_stock',
   createdAt         TEXT,
   updatedAt         TEXT

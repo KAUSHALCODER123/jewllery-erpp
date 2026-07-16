@@ -48,6 +48,7 @@ const emptyValues: ItemFormValues = {
   stoneWt: 0,
   makingChargePerGm: 0,
   quantity: 1,
+  uom: "pieces",
   huid: "",
   hsn: "7113",
   tag: "",
@@ -85,6 +86,7 @@ export function ItemFormDialog({
         stoneWt: editItem.stoneWt,
         makingChargePerGm: editItem.makingChargePerGm,
         quantity: editItem.quantity ?? 1,
+        uom: editItem.uom ?? "pieces",
         huid: editItem.huid ?? "",
         hsn: editItem.hsn ?? defaultHsn,
         tag: editItem.tag,
@@ -100,6 +102,8 @@ export function ItemFormDialog({
   const grossWt = form.watch("grossWt")
   const stoneWt = form.watch("stoneWt")
   const type = form.watch("type")
+  const uom = form.watch("uom")
+  const isWeightWise = uom === "grams" || uom === "kilograms"
   const netWt = computeNetWt(Number(grossWt) || 0, Number(stoneWt) || 0)
 
   // When category changes (create mode only), default the metal type to suit it.
@@ -137,6 +141,7 @@ export function ItemFormDialog({
           stoneWt: values.stoneWt,
           makingChargePerGm: values.makingChargePerGm,
           quantity: values.quantity,
+          uom: values.uom,
           huid: values.huid || undefined,
           hsn: values.hsn || undefined,
           tag: values.tag || editItem.tag,
@@ -153,6 +158,7 @@ export function ItemFormDialog({
           stoneWt: values.stoneWt,
           makingChargePerGm: values.makingChargePerGm,
           quantity: values.quantity,
+          uom: values.uom,
           huid: values.huid || undefined,
           hsn: values.hsn || undefined,
           tag: values.tag || undefined,
@@ -395,6 +401,39 @@ export function ItemFormDialog({
               />
             </div>
 
+            {/* UOM (measurement basis) */}
+            <div className="grid grid-cols-3 gap-3">
+              <FormField
+                control={form.control}
+                name="uom"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Unit (UOM)</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="pieces">Pieces (barcode)</SelectItem>
+                        <SelectItem value="grams">Grams (weight-wise)</SelectItem>
+                        <SelectItem value="kilograms">Kilograms (weight-wise)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {isWeightWise && (
+                <div className="col-span-2 flex items-end pb-2">
+                  <p className="text-[11px] text-muted-foreground">
+                    Weight-wise bulk / raw material — no barcode is printed; it's tracked by weight in loose stock.
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* HSN & Tag */}
             <div className="grid grid-cols-2 gap-3">
               <FormField
@@ -410,23 +449,25 @@ export function ItemFormDialog({
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="tag"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Barcode Tag</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Leave blank to auto-generate"
-                        className="uppercase"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {!isWeightWise && (
+                <FormField
+                  control={form.control}
+                  name="tag"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Barcode Tag</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Leave blank to auto-generate"
+                          className="uppercase"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
             </div>
 
             <DialogFooter className="pt-2">

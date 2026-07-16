@@ -172,16 +172,21 @@ export function InventoryPage() {
             ))}
           </SelectContent>
         </Select>
-        <Button
-          variant="outline"
-          size="sm"
-          className="ml-auto"
-          disabled={filtered.length === 0}
-          onClick={() => setLabelItems(filtered)}
-          title="Print barcode labels for the listed items"
-        >
-          <BarcodeIcon className="size-4" /> Print Labels ({filtered.length})
-        </Button>
+        {(() => {
+          const taggable = filtered.filter((i) => (i.uom ?? "pieces") === "pieces")
+          return (
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              disabled={taggable.length === 0}
+              onClick={() => setLabelItems(taggable)}
+              title="Print barcode labels for the listed piece-items (weight-wise bulk items are excluded)"
+            >
+              <BarcodeIcon className="size-4" /> Print Labels ({taggable.length})
+            </Button>
+          )
+        })()}
       </div>
 
       {/* Table */}
@@ -252,9 +257,11 @@ export function InventoryPage() {
                           <DropdownMenuItem onClick={() => openEdit(item)}>
                             <Pencil className="size-4" /> Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setLabelItems([item])}>
-                            <BarcodeIcon className="size-4" /> Print Label
-                          </DropdownMenuItem>
+                          {(item.uom ?? "pieces") === "pieces" && (
+                            <DropdownMenuItem onClick={() => setLabelItems([item])}>
+                              <BarcodeIcon className="size-4" /> Print Label
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem
                             variant="destructive"
                             onClick={() => handleDelete(item)}

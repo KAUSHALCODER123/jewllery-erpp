@@ -44,7 +44,7 @@ const schema = parseSchema(sql)
 const REQUIRED: Record<string, string[]> = {
   items: [
     "id", "tag", "name", "type", "purity", "grossWt", "stoneWt", "netWt",
-    "makingChargePerGm", "huid", "hsn", "category", "quantity", "status",
+    "makingChargePerGm", "huid", "hsn", "category", "quantity", "uom", "status",
     "createdAt", "updatedAt",
   ],
   customers: [

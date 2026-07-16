@@ -46,6 +46,9 @@ export interface Item {
   category?: string
   /** Quantity / pieces. Defaults to 1 for unique pieces. */
   quantity?: number
+  /** Unit of measurement. "pieces" = tagged retail piece (barcode). "grams"/
+   * "kilograms" = weight-wise bulk/raw material — no barcode, tracked by weight. */
+  uom?: "pieces" | "grams" | "kilograms"
   /** Stock status — sold items are excluded from the active inventory grid. */
   status?: "in_stock" | "sold" | "melted" | "with_karigar"
   createdAt?: string
